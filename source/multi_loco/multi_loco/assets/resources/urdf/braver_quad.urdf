@@ -1,0 +1,530 @@
+<?xml version="1.0"?>
+<robot name="go1_pointfoot_quadruped">
+
+  <!-- ================= materials ================= -->
+  <material name="white"><color rgba="1 1 1 1"/></material>
+  <material name="silver"><color rgba="0.9137 0.9137 0.8471 1"/></material>
+  <material name="grey"><color rgba="0.2 0.2 0.2 1"/></material>
+
+  <!-- ================= base ================= -->
+  <link name="base">
+    <visual><geometry><box size="0.001 0.001 0.001"/></geometry></visual>
+  </link>
+
+  <joint name="floating_base" type="fixed">
+    <parent link="base"/>
+    <child link="trunk"/>
+    <origin xyz="0 0 0"/>
+  </joint>
+
+  <!-- ================= trunk ================= -->
+  <link name="trunk">
+    <visual>
+      <geometry><box size="0.3762 0.0935 0.114"/></geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.3762 0.0935 0.114"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.011611 0.004437 0.000108"/>
+      <mass value="4.8"/>
+      <inertia
+        ixx="0.016130741919" ixy="0.000593180607" ixz="7.324662e-06"
+        iyy="0.036507810812" iyz="2.0969537e-05" izz="0.044693872053"/>
+    </inertial>
+  </link>
+
+  <!-- ================= IMU ================= -->
+  <joint name="imu_joint" type="fixed">
+    <parent link="trunk"/>
+    <child link="imu_link"/>
+    <origin xyz="-0.01592 -0.06659 -0.00617"/>
+  </joint>
+
+  <link name="imu_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="1e-4" iyy="1e-4" izz="1e-4" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </link>
+
+  <!-- ========================================================= -->
+  <!-- ======================= FR LEG (use R_ params) =========== -->
+  <!-- ========================================================= -->
+
+  <joint name="FR_abad_joint" type="revolute">
+    <parent link="trunk"/>
+    <child link="FR_Abad_Link"/>
+    <origin xyz="0.1881 -0.04675 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="40" lower="-0.4" upper="0.4" velocity="30"/>
+  </joint>
+
+  <link name="FR_Abad_Link">
+    <inertial>
+      <origin xyz="0 -0.0033685 0"/>
+      <mass value="0.84142"/>
+      <inertia ixx="0.00044085" ixy="6.4555e-07" ixz="-2.9232e-07"
+               iyy="0.00074812" iyz="9.7511e-08" izz="0.0004023"/>
+    </inertial>
+    <visual>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="FR_hip_joint" type="revolute">
+    <parent link="FR_Abad_Link"/>
+    <child link="FR_hip_Link"/>
+    <origin xyz="0 -0.0875 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="-1.3" upper="1.3" velocity="30"/>
+  </joint>
+
+  <link name="FR_hip_Link">
+    <visual><geometry><mesh filename="../meshes/R_hip_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0 0 -0.1"/>
+      <geometry><cylinder length="0.15" radius="0.02"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.0029051 0.021376 -0.028346"/>
+      <mass value="1.0967"/>
+      <inertia ixx="0.0021496" ixy="1.1839e-06" ixz="-4.8995e-05"
+               iyy="0.0026093" iyz="1.3229e-05" izz="0.00052605"/>
+    </inertial>
+  </link>
+
+  <joint name="FR_knee_joint" type="revolute">
+    <parent link="FR_hip_Link"/>
+    <child link="FR_knee_Link"/>
+    <origin xyz="0 0 -0.22"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="0.5" upper="2.3" velocity="30"/>
+  </joint>
+
+  <link name="FR_knee_Link">
+    <visual><geometry><mesh filename="../meshes/R_knee_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0.008 0 -0.06" rpy="0 -0.21 0"/>
+      <geometry><cylinder length="0.12" radius="0.012"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.006435 0 -0.107388"/>
+      <mass value="0.154"/>
+      <inertia ixx="0.00108" ixy="3.4e-07" ixz="1.72e-05"
+               iyy="0.0011" iyz="8.28e-06" izz="3.29e-05"/>
+    </inertial>
+  </link>
+
+  <!-- knee sub-links (from original biped) -->
+  <link name="FR_kneeflower">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.07" radius="0.011"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="FR_kneeflower_joint" type="fixed">
+    <parent link="FR_knee_Link"/>
+    <child link="FR_kneeflower"/>
+    <origin xyz="0.020 0 -0.152" rpy="0 0.05 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <link name="FR_kneeflower1">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.038" radius="0.012"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="FR_kneeflower1_joint" type="fixed">
+    <parent link="FR_kneeflower"/>
+    <child link="FR_kneeflower1"/>
+    <origin xyz="-0.006 0 -0.05" rpy="0 0.3 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <joint name="FR_foot_joint" type="fixed" dont_collapse="true">
+    <parent link="FR_knee_Link"/>
+    <child link="FR_foot"/>
+    <origin xyz="0 0 -0.232"/>
+  </joint>
+
+  <link name="FR_foot">
+    <visual><geometry><sphere radius="0.022"/></geometry><material name="white"/></visual>
+    <collision><geometry><sphere radius="0.022"/></geometry></collision>
+    <inertial>
+      <origin xyz="-0.039445 0 -0.17051"/>
+      <mass value="0.010414"/>
+      <inertia ixx="2.0696e-05" iyy="1.6231e-06" izz="2.1532e-05"
+               ixy="0" ixz="4.8649e-07" iyz="0"/>
+    </inertial>
+  </link>
+
+  <!-- ========================================================= -->
+  <!-- ======================= FL LEG (use L_ params) =========== -->
+  <!-- ========================================================= -->
+
+  <joint name="FL_abad_joint" type="revolute">
+    <parent link="trunk"/>
+    <child link="FL_Abad_Link"/>
+    <origin xyz="0.1881 0.04675 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="40" lower="-0.4" upper="0.4" velocity="30"/>
+  </joint>
+
+  <link name="FL_Abad_Link">
+    <inertial>
+      <origin xyz="0 0.0033685 0"/>
+      <mass value="0.84142"/>
+      <inertia ixx="0.00044078" ixy="-9.9392e-08" ixz="-3.6784e-07"
+               iyy="0.00074812" iyz="-4.4651e-08" izz="0.00040238"/>
+    </inertial>
+    <visual>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="FL_hip_joint" type="revolute">
+    <parent link="FL_Abad_Link"/>
+    <child link="FL_hip_Link"/>
+    <origin xyz="0 0.0875 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="-1.3" upper="1.3" velocity="30"/>
+  </joint>
+
+  <link name="FL_hip_Link">
+    <visual><geometry><mesh filename="../meshes/L_hip_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0 0 -0.1"/>
+      <geometry><cylinder length="0.15" radius="0.02"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.0029051 -0.021376 -0.028346"/>
+      <mass value="1.0967"/>
+      <inertia ixx="0.0021496" ixy="1.1839e-06" ixz="-4.8995e-05"
+               iyy="0.0026093" iyz="1.3229e-05" izz="0.00052605"/>
+    </inertial>
+  </link>
+
+  <joint name="FL_knee_joint" type="revolute">
+    <parent link="FL_hip_Link"/>
+    <child link="FL_knee_Link"/>
+    <origin xyz="0 0 -0.22"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="0.5" upper="2.3" velocity="30"/>
+  </joint>
+
+  <link name="FL_knee_Link">
+    <visual><geometry><mesh filename="../meshes/L_knee_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0.008 0 -0.06" rpy="0 -0.21 0"/>
+      <geometry><cylinder length="0.12" radius="0.012"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.006435 0 -0.107388"/>
+      <mass value="0.154"/>
+      <inertia ixx="0.00108" ixy="3.4e-07" ixz="1.72e-05"
+               iyy="0.0011" iyz="8.28e-06" izz="3.29e-05"/>
+    </inertial>
+  </link>
+
+  <link name="FL_kneeflower">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.07" radius="0.011"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="FL_kneeflower_joint" type="fixed">
+    <parent link="FL_knee_Link"/>
+    <child link="FL_kneeflower"/>
+    <origin xyz="0.020 0 -0.152" rpy="0 0.05 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <link name="FL_kneeflower1">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.038" radius="0.012"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="FL_kneeflower1_joint" type="fixed">
+    <parent link="FL_kneeflower"/>
+    <child link="FL_kneeflower1"/>
+    <origin xyz="-0.006 0 -0.05" rpy="0 0.3 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <joint name="FL_foot_joint" type="fixed" dont_collapse="true">
+    <parent link="FL_knee_Link"/>
+    <child link="FL_foot"/>
+    <origin xyz="0 0 -0.232"/>
+  </joint>
+
+  <link name="FL_foot">
+    <visual><geometry><sphere radius="0.022"/></geometry><material name="white"/></visual>
+    <collision><geometry><sphere radius="0.022"/></geometry></collision>
+    <inertial>
+      <origin xyz="-0.039445 0 -0.17051"/>
+      <mass value="0.010414"/>
+      <inertia ixx="2.0696e-05" iyy="1.6231e-06" izz="2.1532e-05"
+               ixy="0" ixz="4.8649e-07" iyz="0"/>
+    </inertial>
+  </link>
+
+  <!-- ========================================================= -->
+  <!-- ======================= RR LEG (use R_ params) =========== -->
+  <!-- ========================================================= -->
+
+  <joint name="RR_abad_joint" type="revolute">
+    <parent link="trunk"/>
+    <child link="RR_Abad_Link"/>
+    <origin xyz="-0.1881 -0.04675 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="40" lower="-0.4" upper="0.4" velocity="30"/>
+  </joint>
+
+  <link name="RR_Abad_Link">
+    <inertial>
+      <origin xyz="0 -0.0033685 0"/>
+      <mass value="0.84142"/>
+      <inertia ixx="0.00044085" ixy="6.4555e-07" ixz="-2.9232e-07"
+               iyy="0.00074812" iyz="9.7511e-08" izz="0.0004023"/>
+    </inertial>
+    <visual>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="RR_hip_joint" type="revolute">
+    <parent link="RR_Abad_Link"/>
+    <child link="RR_hip_Link"/>
+    <origin xyz="0 -0.0875 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="-1.3" upper="1.3" velocity="30"/>
+  </joint>
+
+  <link name="RR_hip_Link">
+    <visual><geometry><mesh filename="../meshes/R_hip_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0 0 -0.1"/>
+      <geometry><cylinder length="0.15" radius="0.02"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.0029051 0.021376 -0.028346"/>
+      <mass value="1.0967"/>
+      <inertia ixx="0.0021496" ixy="1.1839e-06" ixz="-4.8995e-05"
+               iyy="0.0026093" iyz="1.3229e-05" izz="0.00052605"/>
+    </inertial>
+  </link>
+
+  <joint name="RR_knee_joint" type="revolute">
+    <parent link="RR_hip_Link"/>
+    <child link="RR_knee_Link"/>
+    <origin xyz="0 0 -0.22"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="0.5" upper="2.3" velocity="30"/>
+  </joint>
+
+  <link name="RR_knee_Link">
+    <visual><geometry><mesh filename="../meshes/R_knee_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0.008 0 -0.06" rpy="0 -0.21 0"/>
+      <geometry><cylinder length="0.12" radius="0.012"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.006435 0 -0.107388"/>
+      <mass value="0.154"/>
+      <inertia ixx="0.00108" ixy="3.4e-07" ixz="1.72e-05"
+               iyy="0.0011" iyz="8.28e-06" izz="3.29e-05"/>
+    </inertial>
+  </link>
+
+  <link name="RR_kneeflower">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.07" radius="0.011"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="RR_kneeflower_joint" type="fixed">
+    <parent link="RR_knee_Link"/>
+    <child link="RR_kneeflower"/>
+    <origin xyz="0.020 0 -0.152" rpy="0 0.05 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <link name="RR_kneeflower1">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.038" radius="0.012"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="RR_kneeflower1_joint" type="fixed">
+    <parent link="RR_kneeflower"/>
+    <child link="RR_kneeflower1"/>
+    <origin xyz="-0.006 0 -0.05" rpy="0 0.3 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <joint name="RR_foot_joint" type="fixed" dont_collapse="true">
+    <parent link="RR_knee_Link"/>
+    <child link="RR_foot"/>
+    <origin xyz="0 0 -0.232"/>
+  </joint>
+
+  <link name="RR_foot">
+    <visual><geometry><sphere radius="0.022"/></geometry><material name="white"/></visual>
+    <collision><geometry><sphere radius="0.022"/></geometry></collision>
+    <inertial>
+      <origin xyz="-0.039445 0 -0.17051"/>
+      <mass value="0.010414"/>
+      <inertia ixx="2.0696e-05" iyy="1.6231e-06" izz="2.1532e-05"
+               ixy="0" ixz="4.8649e-07" iyz="0"/>
+    </inertial>
+  </link>
+
+  <!-- ========================================================= -->
+  <!-- ======================= RL LEG (use L_ params) =========== -->
+  <!-- ========================================================= -->
+
+  <joint name="RL_abad_joint" type="revolute">
+    <parent link="trunk"/>
+    <child link="RL_Abad_Link"/>
+    <origin xyz="-0.1881 0.04675 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="40" lower="-0.4" upper="0.4" velocity="30"/>
+  </joint>
+
+  <link name="RL_Abad_Link">
+    <inertial>
+      <origin xyz="0 0.0033685 0"/>
+      <mass value="0.84142"/>
+      <inertia ixx="0.00044078" ixy="-9.9392e-08" ixz="-3.6784e-07"
+               iyy="0.00074812" iyz="-4.4651e-08" izz="0.00040238"/>
+    </inertial>
+    <visual>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <origin rpy="1.57 0 0"/>
+      <geometry><cylinder length="0.035" radius="0.04"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="RL_hip_joint" type="revolute">
+    <parent link="RL_Abad_Link"/>
+    <child link="RL_hip_Link"/>
+    <origin xyz="0 0.0875 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="-1.3" upper="1.3" velocity="30"/>
+  </joint>
+
+  <link name="RL_hip_Link">
+    <visual><geometry><mesh filename="../meshes/L_hip_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0 0 -0.1"/>
+      <geometry><cylinder length="0.15" radius="0.02"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.0029051 -0.021376 -0.028346"/>
+      <mass value="1.0967"/>
+      <inertia ixx="0.0021496" ixy="1.1839e-06" ixz="-4.8995e-05"
+               iyy="0.0026093" iyz="1.3229e-05" izz="0.00052605"/>
+    </inertial>
+  </link>
+
+  <joint name="RL_knee_joint" type="revolute">
+    <parent link="RL_hip_Link"/>
+    <child link="RL_knee_Link"/>
+    <origin xyz="0 0 -0.22"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="40" lower="0.5" upper="2.3" velocity="30"/>
+  </joint>
+
+  <link name="RL_knee_Link">
+    <visual><geometry><mesh filename="../meshes/L_knee_Link.STL"/></geometry><material name="silver"/></visual>
+    <collision>
+      <origin xyz="0.008 0 -0.06" rpy="0 -0.21 0"/>
+      <geometry><cylinder length="0.12" radius="0.012"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.006435 0 -0.107388"/>
+      <mass value="0.154"/>
+      <inertia ixx="0.00108" ixy="3.4e-07" ixz="1.72e-05"
+               iyy="0.0011" iyz="8.28e-06" izz="3.29e-05"/>
+    </inertial>
+  </link>
+
+  <link name="RL_kneeflower">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.07" radius="0.011"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="RL_kneeflower_joint" type="fixed">
+    <parent link="RL_knee_Link"/>
+    <child link="RL_kneeflower"/>
+    <origin xyz="0.020 0 -0.152" rpy="0 0.05 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <link name="RL_kneeflower1">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder length="0.038" radius="0.012"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="RL_kneeflower1_joint" type="fixed">
+    <parent link="RL_kneeflower"/>
+    <child link="RL_kneeflower1"/>
+    <origin xyz="-0.006 0 -0.05" rpy="0 0.3 0"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+
+  <joint name="RL_foot_joint" type="fixed" dont_collapse="true">
+    <parent link="RL_knee_Link"/>
+    <child link="RL_foot"/>
+    <origin xyz="0 0 -0.232"/>
+  </joint>
+
+  <link name="RL_foot">
+    <visual><geometry><sphere radius="0.022"/></geometry><material name="white"/></visual>
+    <collision><geometry><sphere radius="0.022"/></geometry></collision>
+    <inertial>
+      <origin xyz="-0.039445 0 -0.17051"/>
+      <mass value="0.010414"/>
+      <inertia ixx="2.0696e-05" iyy="1.6231e-06" izz="2.1532e-05"
+               ixy="0" ixz="4.8649e-07" iyz="0"/>
+    </inertial>
+  </link>
+
+</robot>
+

@@ -74,7 +74,8 @@ import os
 import torch
 from datetime import datetime
 
-from rsl_rl.runners import OnPolicyRunner
+# from rsl_rl.runners import OnPolicyRunner
+from multi_loco_lib.rsl_rl.runners import OnPolicyRunner
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -98,6 +99,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
+
 
 
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
@@ -137,8 +139,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         log_dir += f"_{agent_cfg.run_name}"
     log_dir = os.path.join(log_root_path, log_dir)
 
+    # print(f"[INFO] numenvs: {env_cfg.scene.num_envs}")
+    # print("[INFO] num_envs:", env_cfg.scene.num_envs)
+    # print("[INFO] scene keys:", sorted(vars(env_cfg.scene).keys()))
+    # print("[INFO] scene dict:", vars(env_cfg.scene))
+
+
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+
+
+    print(env.unwrapped.termination_manager)
+
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
@@ -165,8 +177,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create runner from rsl-rl
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
-    # write git state to logs
-    runner.add_git_repo_to_log(__file__)
+    # # write git state to logs
+    # runner.add_git_repo_to_log(__file__)
     # load the checkpoint
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")

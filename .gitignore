@@ -69,3 +69,7 @@ tests/
 
 # Docker history
 .isaac-lab-docker-history
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

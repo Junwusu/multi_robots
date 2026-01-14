@@ -31,6 +31,19 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+
+
+
+parser.add_argument("--no_policy", action="store_true", default=False,
+                    help="Do not load checkpoint/policy; just run env for visualization.")
+parser.add_argument("--random_action", action="store_true", default=False,
+                    help="Use random actions in --no_policy mode (otherwise zeros).")
+
+
+
+
+
+
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -55,7 +68,8 @@ import os
 import time
 import torch
 
-from rsl_rl.runners import OnPolicyRunner
+# from rsl_rl.runners import OnPolicyRunner
+from multi_loco_lib.rsl_rl.runners import OnPolicyRunner
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -111,6 +125,53 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+
+
+
+    # ---------------------------
+    # no-policy (visualization) mode
+    # ---------------------------
+    if args_cli.no_policy:
+        print("[INFO] Running in --no_policy mode: no checkpoint will be loaded.")
+
+        dt = env.unwrapped.step_dt
+        obs, _ = env.reset()
+        timestep = 0
+
+        # infer action dim
+        try:
+            act_dim = env.unwrapped.action_manager.action_dim
+        except Exception:
+            act_dim = int(env.action_space.shape[0])
+
+        device = env.unwrapped.device
+        num_envs = env.unwrapped.num_envs
+
+        while simulation_app.is_running():
+            start_time = time.time()
+
+            with torch.inference_mode():
+                if args_cli.random_action:
+                    actions = 2.0 * torch.rand((num_envs, act_dim), device=device) - 1.0
+                else:
+                    actions = torch.zeros((num_envs, act_dim), device=device)
+
+                # gymnasium API: obs, rew, terminated, truncated, info
+                obs, _, _, _, _ = env.step(actions)
+
+            if args_cli.video:
+                timestep += 1
+                if timestep == args_cli.video_length:
+                    break
+
+            sleep_time = dt - (time.time() - start_time)
+            if args_cli.real_time and sleep_time > 0:
+                time.sleep(sleep_time)
+
+        env.close()
+        return
+
+
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):

@@ -24,7 +24,7 @@ INSTALL_REQUIRES = [
 # Installation operation
 setup(
     name="multi_loco",
-    packages=["multi_loco"],
+    packages=["multi_loco","multi_loco_lib"],
     author=EXTENSION_TOML_DATA["package"]["author"],
     maintainer=EXTENSION_TOML_DATA["package"]["maintainer"],
     url=EXTENSION_TOML_DATA["package"]["repository"],
