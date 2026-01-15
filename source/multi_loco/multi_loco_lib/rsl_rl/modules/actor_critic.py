@@ -197,137 +197,137 @@ def get_activation(act_name):
 # 复用你原来的 get_activation
 # from ... import get_activation
 
-class ActorCriticTwoCriticHeads(nn.Module):
-    is_recurrent = False
-    is_sequence = False
-    is_vae = False
+# class ActorCriticTwoCriticHeads(nn.Module):
+#     is_recurrent = False
+#     is_sequence = False
+#     is_vae = False
 
-    def __init__(
-        self,
-        num_actor_obs,
-        num_critic_obs,
-        num_actions,
-        actor_hidden_dims=[256, 256, 256],
-        critic_hidden_dims=[256, 256, 256],
-        activation="elu",
-        orthogonal_init=False,
-        init_noise_std=1.0,
-        # 关键：告诉 critic robot_type 在 critic_obs 的哪两维
-        robot_type_start: int | None = None,   # default: last 2 dims
-        **kwargs,
-    ):
-        if kwargs:
-            print(
-                "ActorCriticTwoCriticHeads.__init__ got unexpected arguments, ignored: "
-                + str([key for key in kwargs.keys()])
-            )
-        super().__init__()
+#     def __init__(
+#         self,
+#         num_actor_obs,
+#         num_critic_obs,
+#         num_actions,
+#         actor_hidden_dims=[256, 256, 256],
+#         critic_hidden_dims=[256, 256, 256],
+#         activation="elu",
+#         orthogonal_init=False,
+#         init_noise_std=1.0,
+#         # 关键：告诉 critic robot_type 在 critic_obs 的哪两维
+#         robot_type_start: int | None = None,   # default: last 2 dims
+#         **kwargs,
+#     ):
+#         if kwargs:
+#             print(
+#                 "ActorCriticTwoCriticHeads.__init__ got unexpected arguments, ignored: "
+#                 + str([key for key in kwargs.keys()])
+#             )
+#         super().__init__()
 
-        self.orthogonal_init = orthogonal_init
-        self.num_actor_obs = num_actor_obs
-        self.num_critic_obs = num_critic_obs
+#         self.orthogonal_init = orthogonal_init
+#         self.num_actor_obs = num_actor_obs
+#         self.num_critic_obs = num_critic_obs
 
-        act_fn = get_activation(activation)
+#         act_fn = get_activation(activation)
 
-        # ---------------- Policy (shared actor) ----------------
-        actor_layers = []
-        actor_layers.append(nn.Linear(num_actor_obs, actor_hidden_dims[0]))
-        if self.orthogonal_init:
-            torch.nn.init.orthogonal_(actor_layers[-1].weight, np.sqrt(2))
-        actor_layers.append(act_fn)
+#         # ---------------- Policy (shared actor) ----------------
+#         actor_layers = []
+#         actor_layers.append(nn.Linear(num_actor_obs, actor_hidden_dims[0]))
+#         if self.orthogonal_init:
+#             torch.nn.init.orthogonal_(actor_layers[-1].weight, np.sqrt(2))
+#         actor_layers.append(act_fn)
 
-        for l in range(len(actor_hidden_dims)):
-            if l == len(actor_hidden_dims) - 1:
-                actor_layers.append(nn.Linear(actor_hidden_dims[l], num_actions))
-                if self.orthogonal_init:
-                    torch.nn.init.orthogonal_(actor_layers[-1].weight, 0.01)
-                    torch.nn.init.constant_(actor_layers[-1].bias, 0.0)
-            else:
-                actor_layers.append(nn.Linear(actor_hidden_dims[l], actor_hidden_dims[l + 1]))
-                if self.orthogonal_init:
-                    torch.nn.init.orthogonal_(actor_layers[-1].weight, np.sqrt(2))
-                    torch.nn.init.constant_(actor_layers[-1].bias, 0.0)
-                actor_layers.append(act_fn)
+#         for l in range(len(actor_hidden_dims)):
+#             if l == len(actor_hidden_dims) - 1:
+#                 actor_layers.append(nn.Linear(actor_hidden_dims[l], num_actions))
+#                 if self.orthogonal_init:
+#                     torch.nn.init.orthogonal_(actor_layers[-1].weight, 0.01)
+#                     torch.nn.init.constant_(actor_layers[-1].bias, 0.0)
+#             else:
+#                 actor_layers.append(nn.Linear(actor_hidden_dims[l], actor_hidden_dims[l + 1]))
+#                 if self.orthogonal_init:
+#                     torch.nn.init.orthogonal_(actor_layers[-1].weight, np.sqrt(2))
+#                     torch.nn.init.constant_(actor_layers[-1].bias, 0.0)
+#                 actor_layers.append(act_fn)
 
-        self.actor = nn.Sequential(*actor_layers)
+#         self.actor = nn.Sequential(*actor_layers)
 
-        # ---------------- Critic backbone + two heads ----------------
-        # backbone 输出维度 = critic_hidden_dims[-1]
-        critic_backbone = []
-        critic_backbone.append(nn.Linear(num_critic_obs, critic_hidden_dims[0]))
-        critic_backbone.append(act_fn)
-        for l in range(len(critic_hidden_dims) - 1):
-            critic_backbone.append(nn.Linear(critic_hidden_dims[l], critic_hidden_dims[l + 1]))
-            if self.orthogonal_init:
-                torch.nn.init.orthogonal_(critic_backbone[-1].weight, np.sqrt(2))
-                torch.nn.init.constant_(critic_backbone[-1].bias, 0.0)
-            critic_backbone.append(act_fn)
+#         # ---------------- Critic backbone + two heads ----------------
+#         # backbone 输出维度 = critic_hidden_dims[-1]
+#         critic_backbone = []
+#         critic_backbone.append(nn.Linear(num_critic_obs, critic_hidden_dims[0]))
+#         critic_backbone.append(act_fn)
+#         for l in range(len(critic_hidden_dims) - 1):
+#             critic_backbone.append(nn.Linear(critic_hidden_dims[l], critic_hidden_dims[l + 1]))
+#             if self.orthogonal_init:
+#                 torch.nn.init.orthogonal_(critic_backbone[-1].weight, np.sqrt(2))
+#                 torch.nn.init.constant_(critic_backbone[-1].bias, 0.0)
+#             critic_backbone.append(act_fn)
 
-        self.critic_backbone = nn.Sequential(*critic_backbone)
+#         self.critic_backbone = nn.Sequential(*critic_backbone)
 
-        hid = critic_hidden_dims[-1]
-        self.value_head_biped = nn.Linear(hid, 1)
-        self.value_head_quad = nn.Linear(hid, 1)
+#         hid = critic_hidden_dims[-1]
+#         self.value_head_biped = nn.Linear(hid, 1)
+#         self.value_head_quad = nn.Linear(hid, 1)
 
-        if self.orthogonal_init:
-            torch.nn.init.orthogonal_(self.value_head_biped.weight, 0.01)
-            torch.nn.init.constant_(self.value_head_biped.bias, 0.0)
-            torch.nn.init.orthogonal_(self.value_head_quad.weight, 0.01)
-            torch.nn.init.constant_(self.value_head_quad.bias, 0.0)
+#         if self.orthogonal_init:
+#             torch.nn.init.orthogonal_(self.value_head_biped.weight, 0.01)
+#             torch.nn.init.constant_(self.value_head_biped.bias, 0.0)
+#             torch.nn.init.orthogonal_(self.value_head_quad.weight, 0.01)
+#             torch.nn.init.constant_(self.value_head_quad.bias, 0.0)
 
-        # robot_type onehot slice
-        if robot_type_start is None:
-            robot_type_start = num_critic_obs - 2
-        self.robot_type_slice = slice(robot_type_start, robot_type_start + 2)
+#         # robot_type onehot slice
+#         if robot_type_start is None:
+#             robot_type_start = num_critic_obs - 2
+#         self.robot_type_slice = slice(robot_type_start, robot_type_start + 2)
 
-        print(f"Actor MLP: {self.actor}")
-        print(f"Critic backbone: {self.critic_backbone}")
-        print(f"Value heads: biped/quad, robot_type_slice={self.robot_type_slice}")
+#         print(f"Actor MLP: {self.actor}")
+#         print(f"Critic backbone: {self.critic_backbone}")
+#         print(f"Value heads: biped/quad, robot_type_slice={self.robot_type_slice}")
 
-        # Action noise
-        self.logstd = nn.Parameter(torch.zeros(num_actions) * math.log(init_noise_std)  )
-        self.distribution = None
-        Normal.set_default_validate_args = False
+#         # Action noise
+#         self.logstd = nn.Parameter(torch.zeros(num_actions) * math.log(init_noise_std)  )
+#         self.distribution = None
+#         Normal.set_default_validate_args = False
 
-    def reset(self, dones=None):
-        pass
+#     def reset(self, dones=None):
+#         pass
 
-    @property
-    def action_mean(self):
-        return self.distribution.mean
+#     @property
+#     def action_mean(self):
+#         return self.distribution.mean
 
-    @property
-    def action_std(self):
-        return self.distribution.stddev
+#     @property
+#     def action_std(self):
+#         return self.distribution.stddev
 
-    @property
-    def entropy(self):
-        return self.distribution.entropy().sum(dim=-1)
+#     @property
+#     def entropy(self):
+#         return self.distribution.entropy().sum(dim=-1)
 
-    def update_distribution(self, observations):
-        mean = self.actor(observations)
-        self.distribution = Normal(mean, mean * 0.0 + torch.exp(self.logstd))
+#     def update_distribution(self, observations):
+#         mean = self.actor(observations)
+#         self.distribution = Normal(mean, mean * 0.0 + torch.exp(self.logstd))
 
-    def act(self, observations, **kwargs):
-        self.update_distribution(observations)
-        return self.distribution.sample()
+#     def act(self, observations, **kwargs):
+#         self.update_distribution(observations)
+#         return self.distribution.sample()
 
-    def get_actions_log_prob(self, actions):
-        return self.distribution.log_prob(actions).sum(dim=-1)
+#     def get_actions_log_prob(self, actions):
+#         return self.distribution.log_prob(actions).sum(dim=-1)
 
-    def act_inference(self, observations):
-        return self.actor(observations)
+#     def act_inference(self, observations):
+#         return self.actor(observations)
 
-    def evaluate(self, critic_observations, **kwargs):
-        # critic_observations 必须包含 robot_type onehot（最后2维最方便）
-        h = self.critic_backbone(critic_observations)
-        v_b = self.value_head_biped(h)
-        v_q = self.value_head_quad(h)
+#     def evaluate(self, critic_observations, **kwargs):
+#         # critic_observations 必须包含 robot_type onehot（最后2维最方便）
+#         h = self.critic_backbone(critic_observations)
+#         v_b = self.value_head_biped(h)
+#         v_q = self.value_head_quad(h)
 
-        rt = critic_observations[:, self.robot_type_slice]  # (N,2) onehot
-        is_quad = rt[:, 1] > 0.5
-        v = torch.where(is_quad.unsqueeze(-1), v_q, v_b)
-        return v
+#         rt = critic_observations[:, self.robot_type_slice]  # (N,2) onehot
+#         is_quad = rt[:, 1] > 0.5
+#         v = torch.where(is_quad.unsqueeze(-1), v_q, v_b)
+#         return v
 
 
 

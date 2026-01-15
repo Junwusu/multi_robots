@@ -15,8 +15,10 @@ from rsl_rl.storage.rollout_storage import RolloutStorage
 from rsl_rl.modules.rnd import RandomNetworkDistillation
 from rsl_rl.utils import string_to_callable
 from rsl_rl.modules.actor_critic import ActorCritic
-# from rsl_rl.modules.actor_critic_recurrent import ActorCriticRecurrent
+from rsl_rl.modules.actor_critic_recurrent import ActorCriticRecurrent
+
 from ..modules.actor_critic import ActorCriticMultiCritic
+
 class PPO(PPOBase):
     policy: ActorCriticMultiCritic
     def __init__(

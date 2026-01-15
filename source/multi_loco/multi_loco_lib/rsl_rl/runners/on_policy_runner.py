@@ -26,8 +26,8 @@ from rsl_rl.modules import (
     StudentTeacherRecurrent,
 )
 
-from multi_loco_lib.rsl_rl.algorithms import PPO
-from multi_loco_lib.rsl_rl.modules import ActorCriticMultiCritic
+from ..algorithms import PPO
+from ..modules import ActorCriticMultiCritic
 
 
 class OnPolicyRunner(OnPolicyRunnerBase):
