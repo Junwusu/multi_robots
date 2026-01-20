@@ -17,10 +17,10 @@ from rsl_rl.utils import string_to_callable
 from rsl_rl.modules.actor_critic import ActorCritic
 from rsl_rl.modules.actor_critic_recurrent import ActorCriticRecurrent
 
-from ..modules.actor_critic import ActorCriticMultiCritic
+from ..modules.actor_critic import ActorCriticMultiCritic, ActorCriticMultiCritic_GNN
 
 class PPO(PPOBase):
-    policy: ActorCriticMultiCritic
+    policy: ActorCriticMultiCritic | ActorCriticMultiCritic_GNN | ActorCritic | ActorCriticRecurrent
     def __init__(
         self,
         policy,

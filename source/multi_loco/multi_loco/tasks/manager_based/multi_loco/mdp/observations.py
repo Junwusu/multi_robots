@@ -165,3 +165,10 @@ def robot_type_onehot(env) -> torch.Tensor:
     onehot[env_type == 1, 1] = 1.0  # quad
     return onehot
 
+
+def action_mask_12(env) -> torch.Tensor:
+    # env.act_mask: [num_envs, 12]
+    return env.act_mask
+
+
+

@@ -41,15 +41,15 @@ class MultiLocoSceneCfg(InteractiveSceneCfg):
     # ground terrain
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        terrain_type="generator",
+        terrain_type="generator", # "plane", "generator"
         terrain_generator=ROUGH_TERRAINS_CFG,
-        max_init_terrain_level=5,
+        max_init_terrain_level=1,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=1.0,
+            static_friction=0.4,
+            dynamic_friction=0.4,
         ),
         visual_material=sim_utils.MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
@@ -108,12 +108,24 @@ class CommandsCfg:
         rel_standing_envs=0.2,
         rel_heading_envs=0.0,
         ranges=mdp.MultiRobotUniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.5, 1.0),
-            lin_vel_y=(-0.5, 0.5),
-            ang_vel_z=(-1.5, 1.5),
+            lin_vel_x=(-1.0, 1.2),
+            lin_vel_y=(-0.6, 0.6),
+            ang_vel_z=(-0.65, 0.65),
             heading=(-math.pi, math.pi),
         ),
     )
+    # base_velocity = mdp.UniformVelocityCommandCfg(
+    #     asset_name="quad",
+    #     resampling_time_range=(10.0, 10.0),
+    #     rel_standing_envs=0.02,
+    #     rel_heading_envs=1.0,
+    #     heading_command=True,
+    #     heading_control_stiffness=0.5,
+    #     debug_vis=True,
+    #     ranges=mdp.UniformVelocityCommandCfg.Ranges(
+    #         lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+    #     ),
+    # )
     gait_command = mdp.UniformGaitCommandCfg(
         class_type=mdp.UniformGaitCommand,
         resampling_time_range=(5.0, 5.0),
@@ -208,7 +220,8 @@ class ObservationsCfg:
         gait_phase = ObsTerm(func=mdp.get_gait_phase)
         gait_command = ObsTerm(func=mdp.get_gait_command, params={"command_name": "gait_command"})
 
-        robot_type = ObsTerm(func=mdp.robot_type_onehot)
+        # robot_type = ObsTerm(func=mdp.robot_type_onehot)
+        act_mask = ObsTerm(func=mdp.action_mask_12)
 
         def __post_init__(self) -> None:
             self.enable_corruption = True
@@ -294,7 +307,8 @@ class ObservationsCfg:
         gait_phase = ObsTerm(func=mdp.get_gait_phase)
         gait_command = ObsTerm(func=mdp.get_gait_command, params={"command_name": "gait_command"})
 
-        robot_type = ObsTerm(func=mdp.robot_type_onehot)
+        # robot_type = ObsTerm(func=mdp.robot_type_onehot)
+        act_mask = ObsTerm(func=mdp.action_mask_12)
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -353,6 +367,377 @@ class EventCfg:
 
 
 @configclass
+class RewardsCfg:
+    """Minimal rewards for biped+quad (to make env runnable)."""
+    #双足
+    alive = RewTerm(
+        func=mdp.stay_alive_type_weighted,
+        weight=1.0,
+        params={
+            "w_biped": 6.0,
+            "w_quad": 0.0,
+        },
+    )
+    #双足四足
+    track_lin_vel_xy_exp = RewTerm(
+        func=mdp.track_lin_vel_xy_exp_type_weighted,
+        weight=1.0,
+        params={
+            "command_name": "base_velocity",
+            "std_biped": 0.25,
+            "std_quad": 0.25,
+            "w_biped": 5.0,
+            "w_quad": 1.5,
+        },
+    )
+    track_ang_vel_z_exp = RewTerm(
+        func=mdp.track_ang_vel_z_exp_type_weighted,
+        weight=1.0,
+        params={
+            "command_name": "base_velocity",
+            "std_biped": 0.25,
+            "std_quad": 0.25,
+            "w_biped": 2.5,
+            "w_quad": 0.75,
+        },
+    )
+    pen_lin_vel_z = RewTerm(
+        func=mdp.lin_vel_z_l2_type_weighted,
+        weight=1.0,
+        params={
+            "w_biped": -2.0,    
+            "w_quad": -2.0,
+        },
+    )  
+    pen_ang_vel_xy = RewTerm(
+        func=mdp.ang_vel_xy_l2_type_weighted,
+        weight=1.0,
+        params={
+            "w_biped": -0.5,    
+            "w_quad": -0.05,
+        },
+    ) 
+    #四足
+    joint_vel = RewTerm(
+        func=mdp.joint_vel_l2_type_weighted,
+        weight=1.0,  # 惩罚项通常给负
+        params=dict(
+            w_biped=0,
+            w_quad=-0.001,
+            biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+        ),
+    )
+    #四足
+    joint_acc = RewTerm(
+        func=mdp.joint_acc_l2_type_weighted,
+        weight=1.0,  # 惩罚项通常给负
+        params=dict(
+            w_biped=0,
+            w_quad=-2.5e-7,
+            biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+        ),
+    )
+    #四足
+    joint_torques = RewTerm(
+        func=mdp.joint_torques_l2_type_weighted,
+        weight=1.0,
+        params=dict(
+            w_biped=0,
+            w_quad=-2e-4,
+            biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+        ),
+    )
+    #双足四足
+    action_rate = RewTerm(
+        func=mdp.action_rate_l2_type_weighted,
+        weight=1.0,
+        params={
+            "w_biped": -0.4 ,    
+            "w_quad": -0.01,
+        },
+    )
+    joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits_type_weighted,
+        weight=1.0,
+        params={
+            "w_biped": -0.3,    
+            "w_quad": -1.0,
+            "biped_cfg": BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            "quad_cfg": BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+        },
+    )
+    #四足
+    energy = RewTerm(
+        func=mdp.energy_type_weighted,
+        weight=1.0,  # 惩罚项通常给负
+        params=dict(
+            w_biped=0,
+            w_quad=-2e-5,
+        ),
+    )
+    #双足四足
+    flat_orientation = RewTerm(
+        func=mdp.flat_orientation_l2_type_weighted,
+        weight=1.0,
+        params={
+            "w_biped":  -30.0,    
+            "w_quad":  -10.0,
+        },
+    )
+    # #四足
+    # joint_pos = RewTerm(
+    #     func=mdp.joint_position_penalty_type_weighted,
+    #     weight=1.0, 
+    #     params=dict(
+    #         w_biped=0.0,
+    #         w_quad=-0.7,
+    #         stand_still_scale_biped=2.0,
+    #         stand_still_scale_quad=5.0,
+    #         velocity_threshold_biped=0.1,
+    #         velocity_threshold_quad=0.3,
+    #         biped_cfg=SceneEntityCfg("biped", joint_names=[".*"]),
+    #         quad_cfg=SceneEntityCfg("quad",  joint_names=[".*"]),
+    #         command_name="base_velocity",
+    #     ),
+    # )
+    #四足
+    feet_air_time = RewTerm(
+        func=mdp.feet_air_time_type_weighted,
+        weight=1.0,
+        params=dict(
+            command_name="base_velocity",
+            threshold_biped=0.15,
+            threshold_quad=0.15,
+            w_biped=0.0,
+            w_quad=1.0,
+            biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
+            quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+        ),
+    ) 
+    # #四足
+    # air_time_var = RewTerm(
+    #     func=mdp.air_time_variance_penalty_type_weighted,
+    #     weight=1.0,  # penalty -> 通常负
+    #     params=dict(
+    #         w_biped=0.0,
+    #         w_quad=-1.0,
+    #         biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
+    #         quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    #         clip_max=0.5,
+    #     ),
+    # )
+    # #四足
+    # feet_slide = RewTerm(
+    #     func=mdp.feet_slide_type_weighted,
+    #     weight=1.0,
+    #     params=dict(
+    #         w_biped=0.0,
+    #         w_quad=-0.03,
+    #         biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
+    #         quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    #         biped_asset_cfg=SceneEntityCfg("biped", body_names=BRAVER_biped_FOOT_NAMES),
+    #         quad_asset_cfg=SceneEntityCfg("quad",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    #         contact_force_threshold=1.0,
+    #     ),
+    # )
+    #双足四足
+    undesired_contact = RewTerm(
+        func=mdp.undesired_contacts_type_weighted,
+        weight=1.0,
+        params={
+            "threshold": 1.0,
+            "w_biped": -10.0,    
+            "w_quad": -1.0,
+            "biped_sensor_cfg" :SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_UNDESIRED_CONTACTS_NAMES),
+            "quad_sensor_cfg": SceneEntityCfg("quad_contact_forces", body_names=BRAVER_QUAD_UNDESIRED_CONTACTS_NAMES),
+        },
+    )   
+    #双足
+    base_height = RewTerm(
+        func=mdp.base_com_height_abs_type_weighted,
+        weight=1.0,
+        params={
+            "target_height_biped": 0.35,
+            "target_height_quad": 0.35,
+            "w_biped": -50.0,
+            "w_quad": 0.0,
+        },
+    )
+    action_smoothness = RewTerm(
+        func=mdp.ActionSmoothnessPenalty_type,
+        weight=1.0,
+    )
+    feet_distance = RewTerm(
+        func=mdp.feet_distance_type_weighted,
+        weight=1.0,
+        params={
+            "w_biped": -30.0,    
+            "w_quad": -0.0,
+        },
+    ) 
+    feet_regulation = RewTerm(
+        func=mdp.feet_regulation_set_type_weighted,
+        weight=1.0,
+        params={
+            "foot_radius_biped": 0.03,
+            "foot_radius_quad": 0.03,
+            "base_height_target_biped": 0.35,
+            "base_height_target_quad": 0.35,
+            "w_biped": -1.0,    
+            "w_quad": -0.0,
+        },
+    )  
+    foot_landing_vel = RewTerm(
+        func=mdp.foot_landing_vel_type_weighted,
+        weight=1.0,
+        params={ 
+            "about_landing_threshold_biped": 0.05,
+            "about_landing_threshold_quad": 0.05,
+            "foot_radius_biped": 0.03,
+            "foot_radius_quad": 0.03,
+            "w_biped": -0.2,    
+            "w_quad": -0.0,
+        },
+    )    
+    feet_velocity = RewTerm(
+        func=mdp.feet_velocity_y_abs_sum_type_weighted,
+        weight=1.0,
+        params={ 
+            "w_biped": -0.8,    
+            "w_quad": -0.0,
+        },
+    )  
+    feet_clearance = RewTerm(
+        func=mdp.foot_clearance_reward1_type_weighted,  
+        weight=1.0,
+        params={ 
+            "target_height_biped": 0.10,
+            "target_height_quad": 0.10,
+            "std_biped": 0.05,
+            "std_quad": 0.05,
+            "tanh_mult_biped": 2.0,
+            "tanh_mult_quad": 2.0,
+            "w_biped": 2.0,   
+            "w_quad": 0.0,    
+        },
+    ) 
+    #双足四足
+    feet_gait = RewTerm(
+        func=mdp.feet_gait_type_weighted,  
+        weight=1.0,
+        params=dict(
+            # biped
+            period_biped=0.4,                 # 2Hz -> period=0.5s
+            offset_biped=[0.0, 0.5],
+            threshold_biped=0.5,
+            w_biped=5.0,
+            biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
+           
+            # quad (示例 trot: FL & RR 同相，FR & RL 同相)
+            period_quad=0.4,
+            offset_quad=[0.0, 0.5, 0.5, 0.0], # FL,FR,RL,RR
+            threshold_quad=0.5,
+            w_quad=1.0,
+            quad_sensor_cfg=SceneEntityCfg("quad_contact_forces", body_names=BRAVER_QUAD_FOOT_NAMES),
+        ),
+    )   
+
+    # go1 rewardscfg 
+    # track_default_joint_pos_exp = RewTerm(
+    #     func=mdp.track_default_joint_pos_exp_type_weighted,
+    #     weight=1.0,
+    #     params=dict(
+    #         std_biped=math.sqrt(0.15),
+    #         std_quad=math.sqrt(0.25),
+    #         w_biped=0.0,
+    #         w_quad=0.25,
+    #         biped_cfg=SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES),
+    #         quad_cfg=SceneEntityCfg("quad", joint_names=BRAVER_QUAD_JOINT_NAMES),
+    #     ),
+    # )
+
+    # feet_stumble = RewTerm(
+    #     func=mdp.feet_stumble_type_weighted,
+    #     weight=1.0,
+    #     params=dict(
+    #         biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
+    #         quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    #         scale_biped=5.0,
+    #         scale_quad=5.0,
+    #         w_biped=0.0,
+    #         w_quad=-2.0,
+    #     ),
+    # )
+    # joint_deviation_hip = RewTerm(
+    #     func=mdp.joint_deviation_l1_type_weighted,
+    #     weight=1.0,
+    #     params=dict(
+    #         w_biped=0.0,
+    #         w_quad=-0.1,
+    #         biped_cfg=SceneEntityCfg("biped", joint_names=HIP_JOINT_NAMES),
+    #         quad_cfg=SceneEntityCfg("quad",  joint_names=".*_hip_joint"),
+    #     ),
+    # )
+    # joint_power_l2 = RewTerm(
+    #     func=mdp.joint_power_l2_type_weighted,
+    #     weight=1.0,
+    #     params=dict(
+    #         w_biped=0.0,
+    #         w_quad=-2.0e-4,
+    #         biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+    #         quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+    #     ),
+    # )
+    # contact_force = RewTerm(
+    #     func=mdp.contact_forces_type_weighted,
+    #     weight=1.0,
+    #     params=dict(
+    #         threshold_biped=80.0,
+    #         threshold_quad=100.0,
+    #         w_biped=0.0,
+    #         w_quad=-0.001,
+    #         biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
+    #         quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    #     ),
+    # )
+    # stand_still_without_cmd = RewTerm(
+    #     func=mdp.stand_still_joint_deviation_l1_type_weighted,
+    #     weight=1.0,
+    #     params=dict(
+    #         command_name="base_velocity",
+    #         command_threshold=0.06,
+    #         w_biped=0.0,
+    #         w_quad=-1.0,
+    #         biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+    #         quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+    #     ),
+    # )
+    # trot_phase = RewTerm(
+    #     func=mdp.trot_typed_weight,
+    #     weight=1.0,
+    #     params=dict(
+    #         command_name="base_velocity",
+    #         w_biped=0.0,
+    #         w_quad=-1.0,
+    #         biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
+    #         quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    #         # 这里的 joint_names 建议你只选“需要做对称约束的那几根关节”，保证顺序可控
+    #         biped_asset_cfg = BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+    #         quad_asset_cfg = BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+    #     ),
+    # )  
+    # trot_phase = RewTerm(
+    #     func=mdp.trot_phase,
+    #     weight=-2.5,
+    #     params=dict(
+    #         sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    #         asset_cfg = BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+    #     ),
+    # )  
+
 # class RewardsCfg:
 #     """Minimal rewards for biped+quad (to make env runnable)."""
 #     alive = RewTerm(
@@ -360,7 +745,7 @@ class EventCfg:
 #         weight=1.0,
 #         params={
 #             "w_biped": 6.0,
-#             "w_quad": 0.0,
+#             "w_quad": 10.0,
 #         },
 #     )
 #     track_lin_vel_xy = RewTerm(
@@ -368,10 +753,10 @@ class EventCfg:
 #         weight=1.0,
 #         params={
 #             "command_name": "base_velocity",
-#             "std_biped": 0.25,
-#             "std_quad": 0.25,
+#             "std_biped": 0.2,
+#             "std_quad": 0.2,
 #             "w_biped": 5.0,
-#             "w_quad": 2.0,
+#             "w_quad": 1.0,
 #         },
 #     )
 #     track_ang_vel_z = RewTerm(
@@ -382,7 +767,17 @@ class EventCfg:
 #             "std_biped": 0.25,
 #             "std_quad": 0.25,
 #             "w_biped": 2.5,
-#             "w_quad": 1.0,
+#             "w_quad": 0.5,
+#         },
+#     )
+#     base_height = RewTerm(
+#         func=mdp.base_com_height_abs_type_weighted,
+#         weight=1.0,
+#         params={
+#             "target_height_biped": 0.35,
+#             "target_height_quad": 0.35,
+#             "w_biped": -50.0,
+#             "w_quad": 0.0,
 #         },
 #     )
 #     pen_lin_vel_z = RewTerm(
@@ -398,7 +793,7 @@ class EventCfg:
 #         weight=1.0,
 #         params={
 #             "w_biped": -0.5,    
-#             "w_quad": -0.05,
+#             "w_quad": -1.0,
 #         },
 #     ) 
 #     action_rate = RewTerm(
@@ -406,22 +801,19 @@ class EventCfg:
 #         weight=1.0,
 #         params={
 #             "w_biped": -0.4 ,    
-#             "w_quad": -0.02,
+#             "w_quad": -0.01,
 #         },
 #     )
-#     feet_air_time = RewTerm(
-#         func=mdp.feet_air_time_type_weighted,
+#     joint_pos_limits = RewTerm(
+#         func=mdp.joint_pos_limits_type_weighted,
 #         weight=1.0,
-#         params=dict(
-#             command_name="base_velocity",
-#             threshold_biped=0.15,
-#             threshold_quad=0.50,
-#             w_biped=0.0,
-#             w_quad=0.25,
-#             biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
-#             quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
-#         ),
-#     ) 
+#         params={
+#             "w_biped": -0.3,    
+#             "w_quad": -5.0,
+#             "biped_cfg": BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
+#             "quad_cfg": BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+#         },
+#     )
 #     undesired_contact = RewTerm(
 #         func=mdp.undesired_contacts_type_weighted,
 #         weight=1.0,
@@ -430,38 +822,17 @@ class EventCfg:
 #             "w_biped": -10.0,    
 #             "w_quad": -1.0,
 #         },
-#     )   
+#     )
+#     action_smoothness = RewTerm(
+#         func=mdp.ActionSmoothnessPenalty_type,
+#         weight=1.0,
+#     )
 #     flat_orientation = RewTerm(
 #         func=mdp.flat_orientation_l2_type_weighted,
 #         weight=1.0,
 #         params={
 #             "w_biped":  -30.0,    
-#             "w_quad":  -2.5,
-#         },
-#     )
-#     joint_pos_limits = RewTerm(
-#         func=mdp.joint_pos_limits_type_weighted,
-#         weight=1.0,
-#         params={
-#             "w_biped": -0.3,    
-#             "w_quad": -0.0,
-#             "biped_cfg": BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
-#             "quad_cfg": BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
-#         },
-#     )
-
-#     action_smoothness = RewTerm(
-#         func=mdp.ActionSmoothnessPenalty_type,
-#         weight=1.0,
-#     )
-#     base_height = RewTerm(
-#         func=mdp.base_com_height_abs_type_weighted,
-#         weight=1.0,
-#         params={
-#             "target_height_biped": 0.35,
-#             "target_height_quad": 0.35,
-#             "w_biped": -50.0,
-#             "w_quad": 0.0,
+#             "w_quad":  -50.0,
 #         },
 #     )
 #     feet_distance = RewTerm(
@@ -539,6 +910,7 @@ class EventCfg:
 #     )   
 
 #     # go1 rewardscfg 
+#     # 1) joint default tracking（biped/quad 不同 std & 内部权重）
 #     track_default_joint_pos_exp = RewTerm(
 #         func=mdp.track_default_joint_pos_exp_type_weighted,
 #         weight=1.0,
@@ -546,17 +918,19 @@ class EventCfg:
 #             std_biped=math.sqrt(0.15),
 #             std_quad=math.sqrt(0.25),
 #             w_biped=0.0,
-#             w_quad=0.5,
+#             w_quad=0.25,
 #             biped_cfg=SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES),
 #             quad_cfg=SceneEntityCfg("quad", joint_names=BRAVER_QUAD_JOINT_NAMES),
 #         ),
 #     )
+
+#     # 2) feet slide（同一 term，不同内部权重）
 #     feet_slide = RewTerm(
 #         func=mdp.feet_slide_type_weighted,
 #         weight=1.0,
 #         params=dict(
 #             w_biped=0.0,
-#             w_quad=-0.2,
+#             w_quad=-0.1,
 #             biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
 #             quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
 #             biped_asset_cfg=SceneEntityCfg("biped", body_names=BRAVER_biped_FOOT_NAMES),
@@ -564,39 +938,20 @@ class EventCfg:
 #             contact_force_threshold=1.0,
 #         ),
 #     )
-#     feet_stumble = RewTerm(
-#         func=mdp.feet_stumble_type_weighted,
-#         weight=1.0,
-#         params=dict(
-#             biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
-#             quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
-#             scale_biped=5.0,
-#             scale_quad=5.0,
-#             w_biped=0.0,
-#             w_quad=-2.0,
-#         ),
-#     )
 
+#     # 3) hip joint deviation（biped/quad 权重不同）
 #     joint_deviation_hip = RewTerm(
 #         func=mdp.joint_deviation_l1_type_weighted,
 #         weight=1.0,
 #         params=dict(
 #             w_biped=0.0,
-#             w_quad=-1.0,
+#             w_quad=-0.1,
 #             biped_cfg=SceneEntityCfg("biped", joint_names=HIP_JOINT_NAMES),
 #             quad_cfg=SceneEntityCfg("quad",  joint_names=".*_hip_joint"),
 #         ),
 #     )
-#     joint_power_l2 = RewTerm(
-#         func=mdp.joint_power_l2_type_weighted,
-#         weight=1.0,
-#         params=dict(
-#             w_biped=0.0,
-#             w_quad=-2.0e-4,
-#             biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
-#             quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
-#         ),
-#     )
+
+#     # 4) contact force penalty（阈值可不同）
 #     contact_force = RewTerm(
 #         func=mdp.contact_forces_type_weighted,
 #         weight=1.0,
@@ -609,6 +964,8 @@ class EventCfg:
 #             quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
 #         ),
 #     )
+
+#     # 5) stand still when no cmd（内部权重可不同）
 #     stand_still_without_cmd = RewTerm(
 #         func=mdp.stand_still_joint_deviation_l1_type_weighted,
 #         weight=1.0,
@@ -617,281 +974,16 @@ class EventCfg:
 #             command_threshold=0.06,
 #             w_biped=0.0,
 #             w_quad=-1.0,
-#             biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
-#             quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+#             biped_cfg=SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES),
+#             quad_cfg=SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES),
 #         ),
 #     )
-#     trot_phase = RewTerm(
-#         func=mdp.trot_typed_weight,
-#         weight=1.0,
-#         params=dict(
-#             command_name="base_velocity",
-#             w_biped=0.0,
-#             w_quad=-0.1,
-#             biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
-#             quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
-#             # 这里的 joint_names 建议你只选“需要做对称约束的那几根关节”，保证顺序可控
-#             biped_asset_cfg = BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
-#             quad_asset_cfg = BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
-#         ),
-#     )  
-
-class RewardsCfg:
-    """Minimal rewards for biped+quad (to make env runnable)."""
-    alive = RewTerm(
-        func=mdp.stay_alive_type_weighted,
-        weight=1.0,
-        params={
-            "w_biped": 6.0,
-            "w_quad": 10.0,
-        },
-    )
-    track_lin_vel_xy = RewTerm(
-        func=mdp.track_lin_vel_xy_exp_type_weighted,
-        weight=1.0,
-        params={
-            "command_name": "base_velocity",
-            "std_biped": 0.2,
-            "std_quad": 0.2,
-            "w_biped": 5.0,
-            "w_quad": 1.0,
-        },
-    )
-    track_ang_vel_z = RewTerm(
-        func=mdp.track_ang_vel_z_exp_type_weighted,
-        weight=1.0,
-        params={
-            "command_name": "base_velocity",
-            "std_biped": 0.25,
-            "std_quad": 0.25,
-            "w_biped": 2.5,
-            "w_quad": 0.5,
-        },
-    )
-    base_height = RewTerm(
-        func=mdp.base_com_height_abs_type_weighted,
-        weight=1.0,
-        params={
-            "target_height_biped": 0.35,
-            "target_height_quad": 0.35,
-            "w_biped": -50.0,
-            "w_quad": 0.0,
-        },
-    )
-    pen_lin_vel_z = RewTerm(
-        func=mdp.lin_vel_z_l2_type_weighted,
-        weight=1.0,
-        params={
-            "w_biped": -2.0,    
-            "w_quad": -2.0,
-        },
-    )  
-    pen_ang_vel_xy = RewTerm(
-        func=mdp.ang_vel_xy_l2_type_weighted,
-        weight=1.0,
-        params={
-            "w_biped": -0.5,    
-            "w_quad": -1.0,
-        },
-    ) 
-    action_rate = RewTerm(
-        func=mdp.action_rate_l2_type_weighted,
-        weight=1.0,
-        params={
-            "w_biped": -0.4 ,    
-            "w_quad": -0.01,
-        },
-    )
-    joint_pos_limits = RewTerm(
-        func=mdp.joint_pos_limits_type_weighted,
-        weight=1.0,
-        params={
-            "w_biped": -0.3,    
-            "w_quad": -5.0,
-            "biped_cfg": BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
-            "quad_cfg": BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
-        },
-    )
-    undesired_contact = RewTerm(
-        func=mdp.undesired_contacts_type_weighted,
-        weight=1.0,
-        params={
-            "threshold": 1.0,
-            "w_biped": -10.0,    
-            "w_quad": -1.0,
-        },
-    )
-    action_smoothness = RewTerm(
-        func=mdp.ActionSmoothnessPenalty_type,
-        weight=1.0,
-    )
-    flat_orientation = RewTerm(
-        func=mdp.flat_orientation_l2_type_weighted,
-        weight=1.0,
-        params={
-            "w_biped":  -30.0,    
-            "w_quad":  -50.0,
-        },
-    )
-    feet_distance = RewTerm(
-        func=mdp.feet_distance_type_weighted,
-        weight=1.0,
-        params={
-            "w_biped": -30.0,    
-            "w_quad": -0.0,
-        },
-    ) 
-    feet_regulation = RewTerm(
-        func=mdp.feet_regulation_set_type_weighted,
-        weight=1.0,
-        params={
-            "foot_radius_biped": 0.03,
-            "foot_radius_quad": 0.03,
-            "base_height_target_biped": 0.35,
-            "base_height_target_quad": 0.35,
-            "w_biped": -1.0,    
-            "w_quad": -0.0,
-        },
-    )  
-    foot_landing_vel = RewTerm(
-        func=mdp.foot_landing_vel_type_weighted,
-        weight=1.0,
-        params={ 
-            "about_landing_threshold_biped": 0.05,
-            "about_landing_threshold_quad": 0.05,
-            "foot_radius_biped": 0.03,
-            "foot_radius_quad": 0.03,
-            "w_biped": -0.2,    
-            "w_quad": -0.0,
-        },
-    )    
-    feet_velocity = RewTerm(
-        func=mdp.feet_velocity_y_abs_sum_type_weighted,
-        weight=1.0,
-        params={ 
-            "w_biped": -0.8,    
-            "w_quad": -0.0,
-        },
-    )  
-    feet_clearance = RewTerm(
-        func=mdp.foot_clearance_reward1_type_weighted,  
-        weight=1.0,
-        params={ 
-            "target_height_biped": 0.10,
-            "target_height_quad": 0.10,
-            "std_biped": 0.05,
-            "std_quad": 0.25,
-            "tanh_mult_biped": 2.0,
-            "tanh_mult_quad": 2.0,
-            "w_biped": 2.0,   
-            "w_quad": 0.0,    
-        },
-    ) 
-    feet_gait = RewTerm(
-        func=mdp.feet_gait_type_weighted,  
-        weight=1.0,
-        params=dict(
-            # biped
-            period_biped=0.4,                 # 2Hz -> period=0.5s
-            offset_biped=[0.0, 0.5],
-            threshold_biped=0.5,
-            w_biped=5.0,
-            biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
-           
-            # quad (示例 trot: FL & RR 同相，FR & RL 同相)
-            period_quad=0.4,
-            offset_quad=[0.0, 0.5, 0.5, 0.0], # FL,FR,RL,RR
-            threshold_quad=0.5,
-            w_quad=0.0,
-            quad_sensor_cfg=SceneEntityCfg("quad_contact_forces", body_names=BRAVER_QUAD_FOOT_NAMES),
-        ),
-    )   
-
-    # go1 rewardscfg 
-    # 1) joint default tracking（biped/quad 不同 std & 内部权重）
-    track_default_joint_pos_exp = RewTerm(
-        func=mdp.track_default_joint_pos_exp_type_weighted,
-        weight=1.0,
-        params=dict(
-            std_biped=math.sqrt(0.15),
-            std_quad=math.sqrt(0.25),
-            w_biped=0.0,
-            w_quad=0.25,
-            biped_cfg=SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES),
-            quad_cfg=SceneEntityCfg("quad", joint_names=BRAVER_QUAD_JOINT_NAMES),
-        ),
-    )
-
-    # 2) feet slide（同一 term，不同内部权重）
-    feet_slide = RewTerm(
-        func=mdp.feet_slide_type_weighted,
-        weight=1.0,
-        params=dict(
-            w_biped=0.0,
-            w_quad=-0.1,
-            biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
-            quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
-            biped_asset_cfg=SceneEntityCfg("biped", body_names=BRAVER_biped_FOOT_NAMES),
-            quad_asset_cfg=SceneEntityCfg("quad",  body_names=BRAVER_QUAD_FOOT_NAMES),
-            contact_force_threshold=1.0,
-        ),
-    )
-
-    # 3) hip joint deviation（biped/quad 权重不同）
-    joint_deviation_hip = RewTerm(
-        func=mdp.joint_deviation_l1_type_weighted,
-        weight=1.0,
-        params=dict(
-            w_biped=0.0,
-            w_quad=-0.1,
-            biped_cfg=SceneEntityCfg("biped", joint_names=HIP_JOINT_NAMES),
-            quad_cfg=SceneEntityCfg("quad",  joint_names=".*_hip_joint"),
-        ),
-    )
-
-    # 4) contact force penalty（阈值可不同）
-    contact_force = RewTerm(
-        func=mdp.contact_forces_type_weighted,
-        weight=1.0,
-        params=dict(
-            threshold_biped=80.0,
-            threshold_quad=100.0,
-            w_biped=0.0,
-            w_quad=-0.001,
-            biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
-            quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
-        ),
-    )
-
-    # 5) stand still when no cmd（内部权重可不同）
-    stand_still_without_cmd = RewTerm(
-        func=mdp.stand_still_joint_deviation_l1_type_weighted,
-        weight=1.0,
-        params=dict(
-            command_name="base_velocity",
-            command_threshold=0.06,
-            w_biped=0.0,
-            w_quad=-1.0,
-            biped_cfg=SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES),
-            quad_cfg=SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES),
-        ),
-    )
 
 
 @configclass
 class TerminationsCfg:
     """Minimal terminations for biped+quad."""
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    # fallen = DoneTerm(
-    #     func=mdp.is_fallen,
-    #     params={
-    #         "biped_cfg": SceneEntityCfg("biped"),
-    #         "quad_cfg": SceneEntityCfg("quad"),
-    #         "min_height_biped": 0.18,
-    #         "min_height_quad": 0.22,
-    #         "grace_time": 0.2,
-    #     },
-    # )
     bad_contact = DoneTerm(
         func=mdp.illegal_contact_multi,
         params={
@@ -899,19 +991,20 @@ class TerminationsCfg:
             "quad_sensor_cfg": SceneEntityCfg("quad_contact_forces",body_names=BRAVER_QUAD_BASE_NAME,),
         },
     )
-    # bad_posture = DoneTerm(
-    #     func=mdp.bad_body_posture_multi,
-    #     params={
-    #         "biped_cfg": SceneEntityCfg("biped"),   
-    #         "quad_cfg": SceneEntityCfg("quad"), 
-    #     }
-    # )
+    bad_posture = DoneTerm(
+        func=mdp.bad_body_posture_multi,
+        params={
+            "biped_cfg": SceneEntityCfg("biped"),   
+            "quad_cfg": SceneEntityCfg("quad"), 
+        }
+    )
     
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel_type_weighted)
+    # vel_track_levels = CurrTerm(func=mdp.terrain_levels_vel_tracking_type_weighted)
 
 
 ##
@@ -952,12 +1045,12 @@ class MultiLocoRoughEnvCfg(MultiLocoEnvCfg):
 
         super().__post_init__()
         #scene
-        self.scene.terrain.max_init_terrain_level = 0
+        # self.scene.terrain.max_init_terrain_level = 0
         #rewards
         # self.rewards.feet_air_time.params["w_quad"] = 0.01
         # self.rewards.flat_orientation.params["w_quad"] = 0.0
         #curriculum
-        self.curriculum.terrain_levels.func = mdp.terrain_levels_vel_tracking_type_weighted
+        # self.curriculum.terrain_levels.func = mdp.terrain_levels_vel_tracking_type_weighted
 
 @configclass
 class MultiLocoFlatEnvCfg(MultiLocoRoughEnvCfg):
@@ -981,7 +1074,7 @@ class MultiLocoRoughEnvCfg_Play(MultiLocoRoughEnvCfg):
 
         super().__post_init__()
         #scene
-        self.scene.num_envs = 50
+        self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
         # spawn the robot randomly in the grid (instead of their terrain levels)
         self.scene.terrain.max_init_terrain_level = None
@@ -1005,7 +1098,7 @@ class MultiLocoFlatEnvCfg_Play(MultiLocoFlatEnvCfg):
         super().__post_init__()
 
         # make a smaller scene for play
-        self.scene.num_envs = 50
+        self.scene.num_envs = 32
         self.scene.env_spacing = 2.5
         # disable randomization for play
         self.observations.policy.enable_corruption = False

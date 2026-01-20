@@ -30,7 +30,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.multi_loco_env_cfg:MultiLocoFlatEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:MultiLocoFlatPPORunnerCfg",
     },
 )
 
@@ -41,6 +41,28 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.multi_loco_env_cfg:MultiLocoFlatEnvCfg_Play",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:MultiLocoFlatPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Multi_Loco_Rough",
+    entry_point=f"{__name__}.multi_loco_env:MultiLocoEnv",
+    # entry_point= MultiLocoEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.multi_loco_env_cfg:MultiLocoRoughEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:MultiLocoRoughPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Multi_Loco_Rough_Play",
+    entry_point=f"{__name__}.multi_loco_env:MultiLocoEnv",
+    # entry_point= MultiLocoEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.multi_loco_env_cfg:MultiLocoRoughEnvCfg_Play",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:MultiLocoRoughPPORunnerCfg",
     },
 )

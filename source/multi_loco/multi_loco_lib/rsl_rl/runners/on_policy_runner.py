@@ -27,7 +27,7 @@ from rsl_rl.modules import (
 )
 
 from ..algorithms import PPO
-from ..modules import ActorCriticMultiCritic
+from ..modules import ActorCriticMultiCritic, ActorCriticMultiCritic_GNN
 
 
 class OnPolicyRunner(OnPolicyRunnerBase):
@@ -82,7 +82,7 @@ class OnPolicyRunner(OnPolicyRunnerBase):
 
         # evaluate the policy class
         policy_class = eval(self.policy_cfg.pop("class_name"))
-        policy: ActorCriticMultiCritic = policy_class(
+        policy: ActorCriticMultiCritic | ActorCriticMultiCritic_GNN = policy_class(
             num_obs, num_privileged_obs, self.env.num_actions, **self.policy_cfg
         ).to(self.device)
 
@@ -419,12 +419,12 @@ class OnPolicyRunner(OnPolicyRunnerBase):
     def export(self, path, filename="policy.onnx"):
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
-        policy_exporter = _OnnxPolicyExporter(self.alg.policy, self.obs_normalizer)
+        policy_exporter = _OnnxPolicyExporter_GNN(self.alg.policy, self.obs_normalizer)
         policy_exporter.export(path, filename)
 
 
 import copy
-
+import torch.nn as nn
 
 class _OnnxPolicyExporter(torch.nn.Module):
     """Exporter of actor-critic into ONNX file."""
@@ -523,3 +523,66 @@ class _OnnxPolicyExporter(torch.nn.Module):
                 output_names=["actions"],
                 dynamic_axes={},
             )
+
+class _OnnxPolicyExporter_GNN(torch.nn.Module):
+    """Exporter of (full) policy into ONNX file.
+
+    For ActorCriticMultiCritic_GNN:
+      - policy.act_inference(obs) contains GNN augmentation + actor forward
+      - so we must export the whole policy, NOT only policy.actor
+    """
+
+    def __init__(self, policy:ActorCriticMultiCritic_GNN, normalizer=None, verbose=False):
+        super().__init__()
+        self.verbose = verbose
+
+        # Copy the whole policy to make sure act_inference includes GNN augmentation.
+        self.policy = copy.deepcopy(policy).cpu().eval()
+
+        # Normalizer (Identity if None)
+        if normalizer is not None:
+            self.normalizer = copy.deepcopy(normalizer).cpu().eval()
+        else:
+            self.normalizer = nn.Identity()
+
+        # For compatibility: determine if recurrent (your GNN policy is not recurrent)
+        self.is_recurrent = bool(getattr(self.policy, "is_recurrent", False))
+        if self.is_recurrent:
+            raise NotImplementedError(
+                "Recurrent export path not implemented for this exporter. "
+                "Your ActorCriticMultiCritic_GNN is non-recurrent, so this should be False."
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: raw obs (before any policy-side augmentation)
+        x = self.normalizer(x)
+        return self.policy.act_inference(x)
+
+    def export(self, path: str, filename: str):
+        os.makedirs(path, exist_ok=True)
+        self.to("cpu")
+        self.eval()
+
+        # IMPORTANT: dummy input must match RAW obs dim (not augmented dim)
+        if hasattr(self.policy, "num_actor_obs"):
+            in_dim = int(self.policy.num_actor_obs)
+        else:
+            raise AttributeError(
+                "Policy does not have num_actor_obs. Please add it, or modify exporter to use env obs dim."
+            )
+
+        obs = torch.zeros(1, in_dim, dtype=torch.float32)
+
+        torch.onnx.export(
+            self,
+            obs,
+            os.path.join(path, filename),
+            export_params=True,
+            opset_version=11,
+            verbose=self.verbose,
+            input_names=["obs"],
+            output_names=["actions"],
+            dynamic_axes={"obs": {0: "batch"}, "actions": {0: "batch"}},
+        )
+
+

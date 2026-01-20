@@ -182,3 +182,9 @@ def terrain_levels_vel_tracking_type_weighted(
     terrain.update_env_origins(env_ids_t, move_up, move_down)
 
     return torch.mean(terrain.terrain_levels.float())
+
+
+
+
+
+

@@ -17,14 +17,11 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
     experiment_name = "multi_loco"
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
-        class_name="ActorCriticMultiCritic",
+        class_name="ActorCriticMultiCritic_GNN",
         init_noise_std=1.0,
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
-        # rnn_type="lstm",
-        # rnn_hidden_dim=128,
-        # rnn_num_layers=1,
     )
     algorithm = RslRlPpoAlgorithmCfg(
         class_name="PPO",
@@ -44,3 +41,11 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
         symmetry_cfg=None,
         rnd_cfg=None,
     )
+
+@configclass
+class MultiLocoRoughPPORunnerCfg(PPORunnerCfg):
+    experiment_name = "multi_loco_rough"
+
+@configclass
+class MultiLocoFlatPPORunnerCfg(PPORunnerCfg):
+    experiment_name = "multi_loco_flat"

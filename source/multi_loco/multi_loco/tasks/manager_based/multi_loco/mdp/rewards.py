@@ -281,7 +281,7 @@ class ActionSmoothnessPenalty_type(ManagerTermBase):
         cfg: RewardTermCfg,
         env,
         w_biped: float = -0.2,
-        w_quad: float = -0.02,
+        w_quad: float = -0.00,
         use_mask: bool = True,
         warmup_steps: int = 5,   # 0=不额外按episode_length_buf屏蔽；你也可以设 3/5
         acc_clip: float = 10.0,  # 例如 10.0；None=不clip
@@ -771,7 +771,30 @@ def trot_typed_weight(
         out[quad_ids] = w_quad * (contact_results_quad + dof_results_quad) * scale[quad_ids]
 
     return out
+def trot_phase(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    command_name: str = "base_velocity",
+) -> torch.Tensor:
+    # raise not NotImplementedError
+    commands = env.command_manager.get_command(command_name)
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2] > 0.1
+    contact_results = torch.logical_xor(contacts[:,(0,1,2,3)],contacts[:,(3, 2, 1, 0)]) + \
+                               torch.logical_not(torch.logical_xor(contacts[:,(0,1,2,3)],contacts[:,(1, 0, 3, 2)]))
+    contact_results = torch.sum(contact_results, dim=1) * (0.2 * torch.clip(torch.abs(commands[:,0]) / (torch.norm(commands[:,1:3],dim=-1) + 0.001), 0.01, 1))
 
+    # 关节角度相同
+
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    dof_pos = asset.data.joint_pos
+    dof_results1 = torch.sum(torch.square((dof_pos[:,1:3] - dof_pos[:,10:12])),dim=1)
+    dof_results2 = torch.sum(torch.square((dof_pos[:,4:6] - dof_pos[:,7:9])),dim=1)
+    dof_results = dof_results1 + dof_results2
+    dof_results = dof_results * (0.2 * torch.clip(torch.abs(commands[:,0]) / (torch.norm(commands[:,1:3],dim=-1) + 0.001), 0.01, 1))
+    return contact_results + dof_results
 
 def feet_air_time_type_weighted(
     env,
@@ -824,8 +847,8 @@ def feet_stumble_type_weighted(
     quad_sensor_cfg:  SceneEntityCfg,
     scale_biped: float = 5.0,
     scale_quad: float = 5.0,
-    w_biped: float = 1.0,
-    w_quad: float = 1.0,
+    w_biped: float = -1.0,
+    w_quad: float = -1.0,
     eps: float = 1e-8,
 ) -> torch.Tensor:
     """
@@ -884,6 +907,209 @@ def joint_power_l2_type_weighted(
         out[quad_ids] = w_quad * torch.sum(torch.abs(jp), dim=1)
 
     return out
+
+def joint_vel_l2_type_weighted(
+    env,
+    w_biped: float = 1.0,
+    w_quad: float = 1.0,
+    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
+    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+) -> torch.Tensor:
+    """
+    Type-weighted joint velocity L2 penalty.
+
+    For each env:
+      penalty = sum( qd^2 ) over joints specified by that type's cfg.joint_ids
+    Output is >=0; typically use a NEGATIVE RewTerm.weight in cfg to penalize it.
+    """
+    biped_ids, quad_ids = _active_ids(env)
+    out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+
+    if biped_ids.numel() > 0:
+        a: Articulation = env.scene[biped_cfg.name]
+        qd = a.data.joint_vel[biped_ids][:, biped_cfg.joint_ids]
+        out[biped_ids] = w_biped * torch.sum(torch.square(qd), dim=1)
+
+    if quad_ids.numel() > 0:
+        a: Articulation = env.scene[quad_cfg.name]
+        qd = a.data.joint_vel[quad_ids][:, quad_cfg.joint_ids]
+        out[quad_ids] = w_quad * torch.sum(torch.square(qd), dim=1)
+
+    return out
+
+
+def joint_acc_l2_type_weighted(
+    env,
+    w_biped: float = 1.0,
+    w_quad: float = 1.0,
+    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
+    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+) -> torch.Tensor:
+    """
+    Type-weighted joint acceleration L2 penalty.
+
+    For each env:
+      penalty = sum( qdd^2 ) over joints specified by that type's cfg.joint_ids
+    Output is >=0; typically use a NEGATIVE RewTerm.weight in cfg to penalize it.
+    """
+    biped_ids, quad_ids = _active_ids(env)
+    out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+
+    if biped_ids.numel() > 0:
+        a: Articulation = env.scene[biped_cfg.name]
+        qdd = a.data.joint_acc[biped_ids][:, biped_cfg.joint_ids]
+        out[biped_ids] = w_biped * torch.sum(torch.square(qdd), dim=1)
+
+    if quad_ids.numel() > 0:
+        a: Articulation = env.scene[quad_cfg.name]
+        qdd = a.data.joint_acc[quad_ids][:, quad_cfg.joint_ids]
+        out[quad_ids] = w_quad * torch.sum(torch.square(qdd), dim=1)
+
+    return out
+
+def joint_torques_l2_type_weighted(
+    env,
+    w_biped: float = 1.0,
+    w_quad: float = 1.0,
+    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
+    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+) -> torch.Tensor:
+    """
+    Type-weighted joint torque L2 penalty.
+
+    For each env:
+      penalty = sum( tau^2 ) over joints specified by that type's cfg.joint_ids
+    Output is >=0; typically use a NEGATIVE RewTerm.weight in cfg to penalize it.
+    """
+    biped_ids, quad_ids = _active_ids(env)
+    out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+
+    if biped_ids.numel() > 0:
+        a: Articulation = env.scene[biped_cfg.name]
+        tau = a.data.applied_torque[biped_ids][:, biped_cfg.joint_ids]
+        out[biped_ids] = w_biped * torch.sum(torch.square(tau), dim=1)
+
+    if quad_ids.numel() > 0:
+        a: Articulation = env.scene[quad_cfg.name]
+        tau = a.data.applied_torque[quad_ids][:, quad_cfg.joint_ids]
+        out[quad_ids] = w_quad * torch.sum(torch.square(tau), dim=1)
+
+    return out
+
+def energy_type_weighted(
+    env,
+    w_biped: float = 1.0,
+    w_quad: float = 1.0,
+    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
+    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+) -> torch.Tensor:
+    """
+    Type-weighted energy penalty:
+        sum(|qvel| * |torque|) over joints specified by each type's cfg.joint_ids
+
+    Output is >=0; typically set a NEGATIVE RewTerm.weight in cfg to penalize energy usage.
+    """
+    biped_ids, quad_ids = _active_ids(env)
+    out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+
+    if biped_ids.numel() > 0:
+        a: Articulation = env.scene[biped_cfg.name]
+        qvel = a.data.joint_vel[biped_ids][:, biped_cfg.joint_ids]
+        qfrc = a.data.applied_torque[biped_ids][:, biped_cfg.joint_ids]
+        out[biped_ids] = w_biped * torch.sum(torch.abs(qvel) * torch.abs(qfrc), dim=1)
+
+    if quad_ids.numel() > 0:
+        a: Articulation = env.scene[quad_cfg.name]
+        qvel = a.data.joint_vel[quad_ids][:, quad_cfg.joint_ids]
+        qfrc = a.data.applied_torque[quad_ids][:, quad_cfg.joint_ids]
+        out[quad_ids] = w_quad * torch.sum(torch.abs(qvel) * torch.abs(qfrc), dim=1)
+
+    return out
+
+def joint_position_penalty_type_weighted(
+    env,
+    # biped/quad 内部权重
+    w_biped: float = 1.0,
+    w_quad: float = 1.0,
+    # biped/quad 各自参数（允许不同）
+    stand_still_scale_biped: float = 1.0,
+    stand_still_scale_quad: float = 1.0,
+    velocity_threshold_biped: float = 0.0,
+    velocity_threshold_quad: float = 0.0,
+    # 资产 cfg
+    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
+    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    command_name: str = "base_velocity",
+) -> torch.Tensor:
+    """
+    Type-weighted joint position penalty (error from default).
+
+    Original behavior per env:
+      cmd = ||base_velocity_cmd||
+      body_vel = ||root_lin_vel_b_xy||
+      err = ||(q - q_default)||    (L2 norm over DOFs)
+      if cmd>0 OR body_vel>vel_th:  out = err
+      else:                        out = stand_still_scale * err
+
+    This version applies the same logic separately for biped/quad, allowing different thresholds/scales/weights.
+    """
+    biped_ids, quad_ids = _active_ids(env)
+    out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+
+    cmd = torch.linalg.norm(env.command_manager.get_command(command_name), dim=1)  # same for all
+
+    def _compute(ids: torch.Tensor, asset_cfg: SceneEntityCfg, vel_th: float, stand_scale: float) -> torch.Tensor:
+        asset: Articulation = env.scene[asset_cfg.name]
+        body_vel = torch.linalg.norm(asset.data.root_lin_vel_b[ids, :2], dim=1)
+        # 只用该资产的 DOF（joint_pos 本身就是该资产的 DOF）；如果你想只对部分关节惩罚，可用 asset_cfg.joint_ids
+        err = torch.linalg.norm(
+            (asset.data.joint_pos[ids] - asset.data.default_joint_pos[ids]),
+            dim=1
+        )
+        moving = torch.logical_or(cmd[ids] > 0.0, body_vel > vel_th)
+        return torch.where(moving, err, stand_scale * err)
+
+    if biped_ids.numel() > 0:
+        out[biped_ids] = w_biped * _compute(biped_ids, biped_cfg, velocity_threshold_biped, stand_still_scale_biped)
+
+    if quad_ids.numel() > 0:
+        out[quad_ids] = w_quad * _compute(quad_ids, quad_cfg, velocity_threshold_quad, stand_still_scale_quad)
+
+    return out
+
+def air_time_variance_penalty_type_weighted(
+    env,
+    w_biped: float = 1.0,
+    w_quad: float = 1.0,
+    biped_sensor_cfg: SceneEntityCfg = SceneEntityCfg("biped_contact_forces"),
+    quad_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("quad_contact_forces"),
+    clip_max: float = 0.5,
+) -> torch.Tensor:
+    """
+    Type-weighted penalty on variance of air-time and contact-time across feet.
+
+    Returns >=0; typically use a NEGATIVE RewTerm.weight to penalize variance.
+    """
+    biped_ids, quad_ids = _active_ids(env)
+    out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+
+    def _pen(cs: ContactSensor, ids: torch.Tensor, cfg: SceneEntityCfg) -> torch.Tensor:
+        if cs.cfg.track_air_time is False:
+            raise RuntimeError("Activate ContactSensor's track_air_time!")
+        air = cs.data.last_air_time[ids][:, cfg.body_ids]
+        contact = cs.data.last_contact_time[ids][:, cfg.body_ids]
+        return torch.var(torch.clip(air, max=clip_max), dim=1) + torch.var(torch.clip(contact, max=clip_max), dim=1)
+
+    if biped_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[biped_sensor_cfg.name]
+        out[biped_ids] = w_biped * _pen(cs, biped_ids, biped_sensor_cfg)
+
+    if quad_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[quad_sensor_cfg.name]
+        out[quad_ids] = w_quad * _pen(cs, quad_ids, quad_sensor_cfg)
+
+    return out
+
 
 
 

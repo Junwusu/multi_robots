@@ -13,8 +13,8 @@ class MultiLocoEnv(ManagerBasedRLEnv):
         # 这个函数在 ManagerBasedEnv.__init__ 里被调用
         # 这里 env.num_envs 和 env.device 一般已经可用
         if not hasattr(self, "env_type") or self.env_type is None:
-            self.env_type = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
             # self.env_type = torch.ones(self.num_envs, dtype=torch.long, device=self.device)
+            self.env_type = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
             self.env_type[self.num_envs // 2 :] = 1
 
         if not hasattr(self, "act_mask") or self.act_mask is None:
