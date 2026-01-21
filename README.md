@@ -1,3 +1,11 @@
+这个分支只做到了双足和四足原地颠一颠。相比于main分支只是改了奖励函数
+
+做不到跟踪速度的原因是velocity_command没有作为obs进入policy，得不到速度自然无法跟踪。
+
+还有multiloco_env 的 step函数，里面的update_command部分被我挪到了reward computation前面，不确定这样操作是否有bug
+
+
+
 # Template for Isaac Lab Projects
 
 ## Overview
