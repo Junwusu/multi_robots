@@ -85,6 +85,10 @@ class MultiLocoEnv(ManagerBasedRLEnv):
         self.reset_buf = self.termination_manager.compute()
         self.reset_terminated = self.termination_manager.terminated
         self.reset_time_outs = self.termination_manager.time_outs
+
+
+        # # -- update command    调到了reward的前面   这是因为 command 可能影响 reward 计算  GPT改的
+        # self.command_manager.compute(dt=self.step_dt)
         # -- reward computation
         self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
 

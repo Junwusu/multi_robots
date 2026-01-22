@@ -280,7 +280,7 @@ class ActionSmoothnessPenalty_type(ManagerTermBase):
         self,
         cfg: RewardTermCfg,
         env,
-        w_biped: float = -0.2,
+        w_biped: float = 1.0,
         w_quad: float = -0.00,
         use_mask: bool = True,
         warmup_steps: int = 5,   # 0=不额外按episode_length_buf屏蔽；你也可以设 3/5
@@ -347,8 +347,8 @@ def feet_distance_type_weighted(
     # quad range (左右间距)
     quad_min: float = 0.15,
     quad_max: float = 0.65,
-    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
-    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped",body_names=BRAVER_biped_FOOT_NAMES),
+    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad",body_names=BRAVER_QUAD_FOOT_NAMES),
 ) -> torch.Tensor:
     biped_ids, quad_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)

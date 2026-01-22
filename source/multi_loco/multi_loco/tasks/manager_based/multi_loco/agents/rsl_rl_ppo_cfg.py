@@ -49,3 +49,5 @@ class MultiLocoRoughPPORunnerCfg(PPORunnerCfg):
 @configclass
 class MultiLocoFlatPPORunnerCfg(PPORunnerCfg):
     experiment_name = "multi_loco_flat"
+    max_iterations = 2000
+    save_interval = 200
