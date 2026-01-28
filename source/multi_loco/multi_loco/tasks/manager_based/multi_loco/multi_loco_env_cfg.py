@@ -6,6 +6,7 @@
 import math
 import torch
 import isaaclab.sim as sim_utils
+import isaaclab.terrains as terrain_gen
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -33,7 +34,48 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 ##
 # Scene definition
 ##
-
+COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=20,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    difficulty_range=(0.0, 1.0),
+    use_cache=False,
+    sub_terrains={
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1),
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=0.1, noise_range=(0.01, 0.06), noise_step=0.01, border_width=0.25
+        ),
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.1), platform_width=2.0, border_width=0.25
+        ),
+        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.1), platform_width=2.0, border_width=0.25
+        ),
+        # "boxes": terrain_gen.MeshRandomGridTerrainCfg(
+        #     proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
+        # ),
+        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
+            proportion=0.1,
+            step_height_range=(0.01, 0.06),
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+        ),
+        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
+            proportion=0.1,
+            step_height_range=(0.01, 0.06),
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+        ),
+    },
+)
 
 @configclass
 class MultiLocoSceneCfg(InteractiveSceneCfg):
@@ -42,14 +84,14 @@ class MultiLocoSceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator", # "plane", "generator"
-        terrain_generator=ROUGH_TERRAINS_CFG,
+        terrain_generator=COBBLESTONE_ROAD_CFG,  # ROUGH_TERRAINS_CFG
         max_init_terrain_level=1,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
-            static_friction=0.4,
-            dynamic_friction=0.4,
+            static_friction=1.0,
+            dynamic_friction=1.0,
         ),
         visual_material=sim_utils.MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
@@ -145,6 +187,7 @@ class ActionsCfg:
         scale=0.25,
         use_default_offset=True,
         preserve_order=True,
+        clip={".*": (-100.0, 100.0)},
     )
 
 
@@ -211,7 +254,7 @@ class ObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
 
         # robot_type = ObsTerm(func=mdp.robot_type_onehot)
-        act_mask = ObsTerm(func=mdp.action_mask_12)
+        # act_mask = ObsTerm(func=mdp.action_mask_12)
 
         def __post_init__(self) -> None:
             self.enable_corruption = True
@@ -299,7 +342,7 @@ class ObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
 
         # robot_type = ObsTerm(func=mdp.robot_type_onehot)
-        act_mask = ObsTerm(func=mdp.action_mask_12)
+        # act_mask = ObsTerm(func=mdp.action_mask_12)
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -598,6 +641,17 @@ class RewardsCfg:
         ),
     )   
 
+    joint_deviation_hip = RewTerm(
+        func=mdp.joint_deviation_l1_type_weighted,
+        weight=1.0,
+        params=dict(
+            w_biped=0.0,
+            w_quad=-0.5,
+            biped_cfg=SceneEntityCfg("biped", joint_names=".*_abad_joint"),
+            quad_cfg=SceneEntityCfg("quad",  joint_names=".*_hip_joint"),
+        ),
+    )
+
 
 @configclass
 class TerminationsCfg:
@@ -610,13 +664,22 @@ class TerminationsCfg:
             "quad_sensor_cfg": SceneEntityCfg("quad_contact_forces",body_names=BRAVER_QUAD_BASE_NAME,),
         },
     )
-    bad_posture = DoneTerm(
-        func=mdp.bad_body_posture_multi,
-        params={
-            "biped_cfg": SceneEntityCfg("biped"),   
-            "quad_cfg": SceneEntityCfg("quad"), 
-        }
+    bad_orientation = DoneTerm(
+        func=mdp.bad_orientation_type_gated,
+        params=dict(
+            limit_angle_biped=0.8,   # 你可以给双足更严格/更宽松
+            limit_angle_quad=0.8,
+            biped_cfg=SceneEntityCfg("biped"),
+            quad_cfg=SceneEntityCfg("quad"),
+        ),
     )
+    # bad_posture = DoneTerm(
+    #     func=mdp.bad_body_posture_multi,
+    #     params={
+    #         "biped_cfg": SceneEntityCfg("biped"),   
+    #         "quad_cfg": SceneEntityCfg("quad"), 
+    #     }
+    # )
     
 @configclass
 class CurriculumCfg:
@@ -664,10 +727,10 @@ class MultiLocoRoughEnvCfg(MultiLocoEnvCfg):
 
         super().__post_init__()
         #scene
-        # self.scene.terrain.max_init_terrain_level = 0
+        self.scene.terrain.max_init_terrain_level = 0
         #rewards
-        # self.rewards.feet_air_time.params["w_quad"] = 0.01
-        # self.rewards.flat_orientation.params["w_quad"] = 0.0
+        self.rewards.feet_air_time.params["w_quad"] = 0.01
+        self.rewards.flat_orientation.params["w_quad"] = 0.0
         #curriculum
         # self.curriculum.terrain_levels.func = mdp.terrain_levels_vel_tracking_type_weighted
 

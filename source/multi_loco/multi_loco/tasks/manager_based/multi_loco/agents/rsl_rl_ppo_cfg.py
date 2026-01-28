@@ -45,6 +45,8 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
 @configclass
 class MultiLocoRoughPPORunnerCfg(PPORunnerCfg):
     experiment_name = "multi_loco_rough"
+    max_iterations = 10000
+    save_interval = 200
 
 @configclass
 class MultiLocoFlatPPORunnerCfg(PPORunnerCfg):

@@ -23,7 +23,11 @@ def _get_active_asset(
     # Here return BOTH assets for convenience? We'll fetch separately in each function.
     raise NotImplementedError
 
-
+def _active_ids(env):
+    t = env.env_type  # 0=biped, 1=quad（按你工程约定）
+    biped_ids = torch.nonzero(t == 0, as_tuple=False).squeeze(-1)
+    quad_ids  = torch.nonzero(t == 1, as_tuple=False).squeeze(-1)
+    return biped_ids, quad_ids
 
 
 def get_active_root_height(env, biped_cfg: SceneEntityCfg, quad_cfg: SceneEntityCfg) -> torch.Tensor:
@@ -192,3 +196,32 @@ def bad_body_posture_multi(
     )
     return bad_envs
 
+
+
+def bad_orientation_type_gated(
+    env,
+    limit_angle_biped: float,
+    limit_angle_quad: float,
+    biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
+    quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+) -> torch.Tensor:
+    """
+    Terminate when the active robot's orientation is too far from upright.
+    Uses acos(-projected_gravity_b[z]) just like the original.
+
+    Returns: bool tensor [num_envs]
+    """
+    biped_ids, quad_ids = _active_ids(env)
+    out = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+
+    if biped_ids.numel() > 0:
+        a: RigidObject = env.scene[biped_cfg.name]
+        ang = torch.acos((-a.data.projected_gravity_b[biped_ids, 2]).clamp(-1.0, 1.0)).abs()
+        out[biped_ids] = ang > limit_angle_biped
+
+    if quad_ids.numel() > 0:
+        a: RigidObject = env.scene[quad_cfg.name]
+        ang = torch.acos((-a.data.projected_gravity_b[quad_ids, 2]).clamp(-1.0, 1.0)).abs()
+        out[quad_ids] = ang > limit_angle_quad
+
+    return out
