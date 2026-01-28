@@ -1,3 +1,8 @@
+把GNN里的mask部分去掉了，只用q和qd
+
+加入了地形让双足四足在崎岖地形行走
+
+
 # Template for Isaac Lab Projects
 
 ## Overview
