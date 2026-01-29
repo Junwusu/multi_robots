@@ -23,6 +23,7 @@ from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as GaussianNoise
 
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
 from . import mdp
 
@@ -47,30 +48,30 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
     sub_terrains={
         "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1),
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=0.1, noise_range=(0.01, 0.06), noise_step=0.01, border_width=0.25
+            proportion=0.1, noise_range=(0.01, 0.10), noise_step=0.01, border_width=0.25
         ),
         "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.1), platform_width=2.0, border_width=0.25
+            proportion=0.1, slope_range=(0.0, 0.3), platform_width=2.0, border_width=0.25
         ),
         "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.1), platform_width=2.0, border_width=0.25
+            proportion=0.1, slope_range=(0.0, 0.3), platform_width=2.0, border_width=0.25
         ),
         # "boxes": terrain_gen.MeshRandomGridTerrainCfg(
         #     proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
         # ),
         "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
             proportion=0.1,
-            step_height_range=(0.01, 0.06),
-            step_width=0.3,
-            platform_width=3.0,
+            step_height_range=(0.01, 0.08),
+            step_width=0.2,
+            platform_width=2.0,
             border_width=1.0,
             holes=False,
         ),
         "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
             proportion=0.1,
-            step_height_range=(0.01, 0.06),
-            step_width=0.3,
-            platform_width=3.0,
+            step_height_range=(0.01, 0.08),
+            step_width=0.2,
+            platform_width=2.0,
             border_width=1.0,
             holes=False,
         ),
@@ -110,17 +111,17 @@ class MultiLocoSceneCfg(InteractiveSceneCfg):
             joint_pos=BRAVER_biped_default_joint_pos,
         ),
     )
-    # # 四足
-    # quad: ArticulationCfg = BRAVER_quad_CFG.replace(
-    #     prim_path="{ENV_REGEX_NS}/BRAVER_QUAD",
-    #     init_state=ArticulationCfg.InitialStateCfg(
-    #         pos=(0.0, 0.0, 0.50),
-    #         rot=(1.0, 0.0, 0.0, 0.0),
-    #         joint_pos=BRAVER_QUAD_default_joint_pos,
-    #     ),
-    # )
+    # 四足
+    quad: ArticulationCfg = BRAVER_quad_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/BRAVER_QUAD",
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=(0.0, 0.0, 0.36),
+            rot=(1.0, 0.0, 0.0, 0.0),
+            joint_pos=BRAVER_QUAD_default_joint_pos,
+        ),
+    )
     # go1
-    quad: ArticulationCfg = UNITREE_GO1_CFG.replace(prim_path="{ENV_REGEX_NS}/BRAVER_QUAD")
+    # quad: ArticulationCfg = UNITREE_GO1_CFG.replace(prim_path="{ENV_REGEX_NS}/BRAVER_QUAD")
     # lights
     dome_light = AssetBaseCfg(
         prim_path="/World/DomeLight",
@@ -606,20 +607,20 @@ class RewardsCfg:
             "w_quad": -0.0,
         },
     )  
-    # feet_clearance = RewTerm(
-    #     func=mdp.foot_clearance_reward1_type_weighted,  
-    #     weight=1.0,
-    #     params={ 
-    #         "target_height_biped": 0.10,
-    #         "target_height_quad": 0.10,
-    #         "std_biped": 0.05,
-    #         "std_quad": 0.05,
-    #         "tanh_mult_biped": 2.0,
-    #         "tanh_mult_quad": 2.0,
-    #         "w_biped": 2.0,   
-    #         "w_quad": 0.0,    
-    #     },
-    # ) 
+    feet_clearance = RewTerm(
+        func=mdp.foot_clearance_reward1_type_weighted,  
+        weight=1.0,
+        params={ 
+            "target_height_biped": 0.10,
+            "target_height_quad": 0.10,
+            "std_biped": 0.05,
+            "std_quad": 0.05,
+            "tanh_mult_biped": 2.0,
+            "tanh_mult_quad": 2.0,
+            "w_biped": 2.0,   
+            "w_quad": 0.0,    
+        },
+    ) 
     #双足四足
     feet_gait = RewTerm(
         func=mdp.feet_gait_type_weighted,  
@@ -648,7 +649,7 @@ class RewardsCfg:
             w_biped=0.0,
             w_quad=-0.5,
             biped_cfg=SceneEntityCfg("biped", joint_names=".*_abad_joint"),
-            quad_cfg=SceneEntityCfg("quad",  joint_names=".*_hip_joint"),
+            quad_cfg=SceneEntityCfg("quad",  joint_names=".*_abad_joint"),
         ),
     )
 
@@ -729,8 +730,8 @@ class MultiLocoRoughEnvCfg(MultiLocoEnvCfg):
         #scene
         self.scene.terrain.max_init_terrain_level = 0
         #rewards
-        self.rewards.feet_air_time.params["w_quad"] = 0.01
-        self.rewards.flat_orientation.params["w_quad"] = 0.0
+        # self.rewards.feet_air_time.params["w_quad"] = 0.01
+        self.rewards.flat_orientation.params["w_quad"] = -1.0
         #curriculum
         # self.curriculum.terrain_levels.func = mdp.terrain_levels_vel_tracking_type_weighted
 

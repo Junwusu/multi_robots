@@ -771,10 +771,45 @@ class ActorCriticMultiCritic(nn.Module):
 #         v = (1.0 - g) * v_b + g * v_q
 #         return v
 
+
+# 真实的图结构
+# 0  FL_hip_joint
+# 1  FL_thigh_joint
+# 2  FL_calf_joint
+
+# 3  FR_hip_joint
+# 4  FR_thigh_joint
+# 5  FR_calf_joint
+
+# 6  RL_hip_joint
+# 7  RL_thigh_joint
+# 8  RL_calf_joint
+
+# 9  RR_hip_joint
+# 10 RR_thigh_joint
+# 11 RR_calf_joint
+# EDGES_REAL = [
+#     # 4 legs chain
+#     (0, 1), (1, 2),   # FL: hip-thigh-calf
+#     (3, 4), (4, 5),   # FR
+#     (6, 7), (7, 8),   # RL
+#     (9,10), (10,11),  # RR
+
+#     # within-module body bar (front module hips, rear module hips)
+#     (0, 3),           # FL_hip -- FR_hip   (一个双足模块的顶端连杆)
+#     (6, 9),           # RL_hip -- RR_hip   (另一个双足模块的顶端连杆)
+
+#     # module-to-module connector (你图中弧线连接)
+#     (3, 6),           # FR_hip -- RL_hip
+# ]
+
+
+
 class MorphGNNEncoder(nn.Module):
     """
-    Super-graph GNN for N=12 joints (nodes).
-    Node features: [q, qd]  ->  z_morph [B, D]
+    Real-topology GNN for N=12 joints (nodes).
+    Node features: [q, qd] -> z_morph [B, D]
+    Graph structure comes from real linkage (edges).
     """
     def __init__(
         self,
@@ -783,6 +818,8 @@ class MorphGNNEncoder(nn.Module):
         embed_dim: int = 32,
         hidden_dim: int = 128,
         act_fn: nn.Module = nn.ELU(),
+        edges: list[tuple[int, int]] | None = None,
+        add_self_loops: bool = True,
     ):
         super().__init__()
         self.num_nodes = int(num_nodes)
@@ -802,42 +839,46 @@ class MorphGNNEncoder(nn.Module):
             act_fn,
         )
 
-        # Default adjacency: chain + self-loops (N fixed)
-        A = torch.zeros(self.num_nodes, self.num_nodes, dtype=torch.float32)
-        for i in range(self.num_nodes):
-            A[i, i] = 1.0
-            if i - 1 >= 0:
-                A[i, i - 1] = 1.0
-            if i + 1 < self.num_nodes:
-                A[i, i + 1] = 1.0
-        deg = A.sum(dim=1, keepdim=True).clamp_min(1.0)
-        A_norm = A / deg
-        self.register_buffer("A_norm", A_norm, persistent=False)  # [N, N]
+        if edges is None:
+            # --- REAL EDGES in your joint order (BRAVER_QUAD_JOINT_NAMES) ---
+            edges = [
+                (0, 1), (1, 2),
+                (3, 4), (4, 5),
+                (6, 7), (7, 8),
+                (9,10), (10,11),
+                (0, 3),
+                (6, 9),
+                (3, 6),
+            ]
 
-    def forward(self, node_feat: torch.Tensor, node_mask: torch.Tensor) -> torch.Tensor:
+        A_norm = self._build_A_norm(self.num_nodes, edges, add_self_loops=add_self_loops)
+        self.register_buffer("A_norm", A_norm, persistent=False)  # [N,N]
+
+    @staticmethod
+    def _build_A_norm(num_nodes: int, edges: list[tuple[int, int]], add_self_loops: bool = True) -> torch.Tensor:
+        A = torch.zeros(num_nodes, num_nodes, dtype=torch.float32)
+        for (i, j) in edges:
+            if not (0 <= i < num_nodes and 0 <= j < num_nodes):
+                raise ValueError(f"edge ({i},{j}) out of range for num_nodes={num_nodes}")
+            A[i, j] = 1.0
+            A[j, i] = 1.0
+        if add_self_loops:
+            for i in range(num_nodes):
+                A[i, i] = 1.0
+
+        deg = A.sum(dim=1, keepdim=True).clamp_min(1.0)
+        return A / deg
+
+    def forward(self, node_feat: torch.Tensor) -> torch.Tensor:
         """
         node_feat: [B, N, F]
-        node_mask: [B, N]  (0/1)
         returns z: [B, D]
         """
-        if node_mask is None:
-            node_mask = torch.ones(
-                (node_feat.shape[0], node_feat.shape[1]),
-                dtype=node_feat.dtype,
-                device=node_feat.device,
-            )
-        # mask invalid nodes (both features and pooling)
-        m = node_mask.unsqueeze(-1)  # [B,N,1]
-        x = node_feat * m
-
-        h = self.mlp1(x)  # [B,N,H]
-        # neighbor mean: A_norm @ h
+        h = self.mlp1(node_feat)  # [B,N,H]
         h_nb = torch.einsum("ij,bjh->bih", self.A_norm, h)
         h = h + h_nb
         h = self.mlp2(h)  # [B,N,D]
-
-        denom = node_mask.sum(dim=1, keepdim=True).clamp_min(1.0)  # [B,1]
-        z = (h * m).sum(dim=1) / denom  # [B,D]
+        z = h.mean(dim=1)  # global mean pooling over 12 nodes
         return z
 
 class ActorCriticMultiCritic_GNN(nn.Module):
@@ -944,6 +985,15 @@ class ActorCriticMultiCritic_GNN(nn.Module):
                 embed_dim=self.morph_embed_dim,
                 hidden_dim=int(gnn_hidden_dim),
                 act_fn=act_fn,
+                edges=[
+                    (0, 1), (1, 2),
+                    (3, 4), (4, 5),
+                    (6, 7), (7, 8),
+                    (9,10), (10,11),
+                    (0, 3),
+                    (6, 9),
+                    (3, 6),
+                ],
             )
             self.gate = nn.Sequential(
                 nn.Linear(self.morph_embed_dim, 64),
@@ -1022,14 +1072,14 @@ class ActorCriticMultiCritic_GNN(nn.Module):
         qd = obs[:, self.actor_joint_vel_slice]  # [B,12]
         node_feat = torch.stack([q, qd], dim=-1)  # [B,12,2]
         # no mask provided -> all nodes assumed present
-        z = self.morph_gnn(node_feat, node_mask=None)  # [B,D]
+        z = self.morph_gnn(node_feat)  # [B,D]
         return z
 
     def _compute_z_from_critic_obs(self, obs: torch.Tensor) -> torch.Tensor:
         q = obs[:, self.critic_joint_pos_slice]
         qd = obs[:, self.critic_joint_vel_slice]
         node_feat = torch.stack([q, qd], dim=-1)  # [B,12,2]
-        z = self.morph_gnn(node_feat, node_mask=None)
+        z = self.morph_gnn(node_feat)
         return z
 
     def _augment_actor_obs(self, obs: torch.Tensor) -> torch.Tensor:

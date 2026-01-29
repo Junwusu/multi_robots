@@ -37,7 +37,7 @@ BRAVER_quad_CFG = ArticulationCfg(
     ),
     debug_vis=True, # Enable debug visualization
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.50),
+        pos=(0.0, 0.0, 0.38),
         joint_pos={
             "FL_abad_joint": 0.0,
             "FR_abad_joint": 0.0,
@@ -144,7 +144,7 @@ from isaaclab.managers import SceneEntityCfg
 
 
 BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG = SceneEntityCfg(
-    "robot",
+    "quad",
     joint_names=[
         'FL_abad_joint', 
         'FL_hip_joint', 
@@ -164,9 +164,9 @@ BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG = SceneEntityCfg(
 
 
 # link definitions
-BRAVER_QUAD_BASE_NAME = "base",
-BRAVER_QUAD_FOOT_NAMES = ["FL_foot", "FR_foot","RL_foot", "RR_foot"]
-BRAVER_QUAD_UNDESIRED_CONTACTS_NAMES = ["base",
+BRAVER_QUAD_BASE_NAME = "trunk",
+BRAVER_QUAD_FOOT_NAMES = ".*_foot"
+BRAVER_QUAD_UNDESIRED_CONTACTS_NAMES = ["trunk",
     "FL_Abad_Link",
     "FL_hip_Link",
     "FL_knee_Link",
@@ -188,20 +188,9 @@ BRAVER_QUAD_JOINT_NAMES = [
                     "RR_abad_joint","RR_hip_joint","RR_knee_joint",]
 
 BRAVER_QUAD_default_joint_pos = {
-                "FL_abad_joint": 0.0,
-                "FR_abad_joint": 0.0,
-                "RL_abad_joint": 0.0,
-                "RR_abad_joint": 0.0,
-                "FL_hip_joint": -0.7,
-                "FR_hip_joint": -0.7,
-                "RL_hip_joint": -0.7,
-                "RR_hip_joint": -0.7,
-                "FL_knee_joint": 1.3,
-                "FR_knee_joint": 1.3,
-                "RL_knee_joint": 1.3,
-                "RR_knee_joint": 1.3,
+                "FL_abad_joint": 0.0,"FL_hip_joint": -0.7,"FL_knee_joint": 1.3,
+                "FR_abad_joint": 0.0,"FR_hip_joint": -0.7,"FR_knee_joint": 1.3,
+                "RL_abad_joint": 0.0,"RL_hip_joint": -0.7,"RL_knee_joint": 1.3,
+                "RR_abad_joint": 0.0,"RR_hip_joint": -0.7,"RR_knee_joint": 1.3,  
             }
-# joint definitions
-BRAVER_QUAD_HIP_JOINT_NAMES = ["L_abad_joint", "L_hip_joint", "R_abad_joint", "R_hip_joint"]
-BRAVER_QUAD_ZERO_JOINT_NAMES = ["L_abad_joint", "L_hip_joint", "R_abad_joint", "R_hip_joint"]
 
