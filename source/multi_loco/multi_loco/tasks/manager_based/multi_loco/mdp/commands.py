@@ -26,9 +26,10 @@ class MultiRobotUniformVelocityCommandCfg(CommandTermCfg):
 
     class_type: type = MISSING  # 下面会填成 MultiRobotUniformVelocityCommand
 
-    # 两个机器人在 scene 里的名字
+    # 三个机器人在 scene 里的名字
     biped_asset_name: str = "biped"
     quad_asset_name: str = "quad"
+    hexapod_asset_name: str = "hexapod"
 
     heading_command: bool = False
     heading_control_stiffness: float = 1.0
@@ -67,9 +68,10 @@ class MultiRobotUniformVelocityCommand(CommandTerm):
         if self.cfg.ranges.heading and not self.cfg.heading_command:
             omni.log.warn("ranges.heading is set but heading_command is False.")
 
-        # two robot assets
+        # three robot assets
         self.biped: Articulation = env.scene[cfg.biped_asset_name]
         self.quad: Articulation = env.scene[cfg.quad_asset_name]
+        self.hexapod: Articulation = env.scene[cfg.hexapod_asset_name]
 
         # command buffers（照抄原版）
         self.vel_command_b = torch.zeros(self.num_envs, 3, device=self.device)
@@ -93,6 +95,7 @@ class MultiRobotUniformVelocityCommand(CommandTerm):
         env_ids = torch.arange(self.num_envs, device=device)
         biped_ids = env_ids[env.env_type == 0]
         quad_ids  = env_ids[env.env_type == 1]
+        hex_ids  = env_ids[env.env_type == 2]
 
         root_lin_vel_b = torch.zeros((self.num_envs, 3), device=device)
         root_ang_vel_b = torch.zeros((self.num_envs, 3), device=device)
@@ -113,6 +116,13 @@ class MultiRobotUniformVelocityCommand(CommandTerm):
             heading_w[quad_ids]      = self.quad.data.heading_w[quad_ids]
             root_pos_w[quad_ids]     = self.quad.data.root_pos_w[quad_ids]
             root_quat_w[quad_ids]    = self.quad.data.root_quat_w[quad_ids]
+
+        if hex_ids.numel() > 0:
+            root_lin_vel_b[hex_ids] = self.hexapod.data.root_lin_vel_b[hex_ids]
+            root_ang_vel_b[hex_ids] = self.hexapod.data.root_ang_vel_b[hex_ids]
+            heading_w[hex_ids]      = self.hexapod.data.heading_w[hex_ids]
+            root_pos_w[hex_ids]     = self.hexapod.data.root_pos_w[hex_ids]
+            root_quat_w[hex_ids]    = self.hexapod.data.root_quat_w[hex_ids]
 
         return root_lin_vel_b, root_ang_vel_b, heading_w, root_pos_w, root_quat_w
 
@@ -172,7 +182,7 @@ class MultiRobotUniformVelocityCommand(CommandTerm):
     def _debug_vis_callback(self, event):
         # 两个机器人都可能存在 init 问题，保守一点：只要 active 的那台能读数据就行
         # 这里简单判断：如果两台都没初始化就返回
-        if (not self.biped.is_initialized) and (not self.quad.is_initialized):
+        if (not self.biped.is_initialized) and (not self.quad.is_initialized) and (not self.hexapod.is_initialized):
             return
 
         root_lin_vel_b, _, _, root_pos_w, root_quat_w = self._active_data()
