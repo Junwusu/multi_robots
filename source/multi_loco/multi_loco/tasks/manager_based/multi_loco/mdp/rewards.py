@@ -16,7 +16,8 @@ def _active_ids(env):
     env_ids = torch.arange(env.num_envs, device=env.device)
     biped_ids = env_ids[env.env_type == 0]
     quad_ids  = env_ids[env.env_type == 1]
-    return biped_ids, quad_ids
+    hex_ids  = env_ids[env.env_type == 2]
+    return biped_ids, quad_ids, hex_ids
 
 
 """
@@ -24,13 +25,15 @@ General.
 """
 
 #用
-def stay_alive_type_weighted(env, w_biped: float = 1.0, w_quad: float = 1.0) -> torch.Tensor:
+def stay_alive_type_weighted(env, w_biped: float = 1.0, w_quad: float = 1.0, w_hex: float = 1.0) -> torch.Tensor:
     out = torch.zeros(env.num_envs, device=env.device)
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     if biped_ids.numel() > 0:
         out[biped_ids] = w_biped
     if quad_ids.numel() > 0:
         out[quad_ids] = w_quad
+    if hex_ids.numel() > 0:
+        out[hex_ids] = w_hex
     return out
 
 
@@ -45,16 +48,20 @@ def track_lin_vel_xy_exp_type_weighted(
     command_name: str,
     std_biped: float,
     std_quad: float,
+    std_hex: float,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     cmd = env.command_manager.get_command(command_name)  # (N,3)
 
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
 
     out = torch.zeros(env.num_envs, device=env.device)
 
@@ -66,6 +73,10 @@ def track_lin_vel_xy_exp_type_weighted(
         err = torch.sum((cmd[quad_ids, :2] - quad.data.root_lin_vel_b[quad_ids, :2]) ** 2, dim=1)
         out[quad_ids] = w_quad * torch.exp(-err / (std_quad ** 2))
 
+    if hex_ids.numel() > 0:
+        err = torch.sum((cmd[hex_ids, :2] - hexa.data.root_lin_vel_b[hex_ids, :2]) ** 2, dim=1)
+        out[hex_ids] = w_hex * torch.exp(-err / (std_hex ** 2))
+
     return out
 #用
 def track_ang_vel_z_exp_type_weighted(
@@ -73,16 +84,20 @@ def track_ang_vel_z_exp_type_weighted(
     command_name: str,
     std_biped: float,
     std_quad: float,
+    std_hex: float,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     cmd = env.command_manager.get_command(command_name)  # (N,3)
 
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
 
     out = torch.zeros(env.num_envs, device=env.device)
 
@@ -93,6 +108,10 @@ def track_ang_vel_z_exp_type_weighted(
     if quad_ids.numel() > 0:
         err = (cmd[quad_ids, 2] - quad.data.root_ang_vel_b[quad_ids, 2]) ** 2
         out[quad_ids] = w_quad * torch.exp(-err / (std_quad ** 2))
+
+    if hex_ids.numel() > 0:
+        err = (cmd[hex_ids, 2] - hexa.data.root_ang_vel_b[hex_ids, 2]) ** 2
+        out[hex_ids] = w_hex * torch.exp(-err / (std_hex ** 2))
 
     return out
 
@@ -106,18 +125,23 @@ def lin_vel_z_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
         out[biped_ids] = w_biped * (biped.data.root_lin_vel_b[biped_ids, 2] ** 2)
     if quad_ids.numel() > 0:
         out[quad_ids]  = w_quad  * (quad.data.root_lin_vel_b[quad_ids, 2] ** 2)
+    if hex_ids.numel() > 0:
+        out[hex_ids]  = w_hex  * (hexa.data.root_lin_vel_b[hex_ids, 2] ** 2)
 
     return out
 #用
@@ -125,18 +149,23 @@ def ang_vel_xy_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
         out[biped_ids] = w_biped * torch.sum(biped.data.root_ang_vel_b[biped_ids, :2] ** 2, dim=1)
     if quad_ids.numel() > 0:
         out[quad_ids]  = w_quad  * torch.sum(quad.data.root_ang_vel_b[quad_ids, :2] ** 2, dim=1)
+    if hex_ids.numel() > 0:
+        out[hex_ids]  = w_hex  * torch.sum(hexa.data.root_ang_vel_b[hex_ids, :2] ** 2, dim=1)
 
     return out
 #用
@@ -144,18 +173,23 @@ def base_com_height_abs_type_weighted(
     env,
     target_height_biped: float,
     target_height_quad: float,
+    target_height_hex: float,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
     # 可选：如果你以后想 rough terrain，用各自的 scanner
     biped_sensor_cfg: SceneEntityCfg | None = None,
     quad_sensor_cfg:  SceneEntityCfg | None = None,
+    hex_sensor_cfg:  SceneEntityCfg | None = None,
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
 
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
 
     out = torch.zeros(env.num_envs, device=env.device)
 
@@ -173,24 +207,36 @@ def base_com_height_abs_type_weighted(
             tgt = tgt + torch.mean(s.data.ray_hits_w[quad_ids, ..., 2], dim=1)
         out[quad_ids] = w_quad * torch.abs(quad.data.root_pos_w[quad_ids, 2] - tgt)
 
+    if hex_ids.numel() > 0:
+        tgt = target_height_hex
+        if hex_sensor_cfg is not None:
+            s: RayCaster = env.scene.sensors[hex_sensor_cfg.name]
+            tgt = tgt + torch.mean(s.data.ray_hits_w[hex_ids, ..., 2], dim=1)
+        out[hex_ids] = w_hex * torch.abs(hexa.data.root_pos_w[hex_ids, 2] - tgt)
+
     return out
 #用
 def flat_orientation_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
         out[biped_ids] = w_biped * torch.sum(biped.data.projected_gravity_b[biped_ids, :2] ** 2, dim=1)
     if quad_ids.numel() > 0:
         out[quad_ids]  = w_quad  * torch.sum(quad.data.projected_gravity_b[quad_ids, :2] ** 2, dim=1)
+    if hex_ids.numel() > 0:
+        out[hex_ids]  = w_hex  * torch.sum(hexa.data.projected_gravity_b[hex_ids, :2] ** 2, dim=1)
 
     return out
 
@@ -205,9 +251,10 @@ def action_rate_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     use_mask: bool = True,
 ) -> torch.Tensor:
-    # action shape: (N, 12)
+    # action shape: (N, 18)
     a  = env.action_manager.action
     pa = env.action_manager.prev_action
 
@@ -218,12 +265,14 @@ def action_rate_l2_type_weighted(
 
     per_env = torch.sum(da * da, dim=1)  # (N,)
 
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros_like(per_env)
     if biped_ids.numel() > 0:
         out[biped_ids] = w_biped * per_env[biped_ids]
     if quad_ids.numel() > 0:
         out[quad_ids]  = w_quad  * per_env[quad_ids]
+    if hex_ids.numel() > 0:
+        out[hex_ids]  = w_hex  * per_env[hex_ids]
     return out
 
 class ActionSmoothnessPenalty_type(ManagerTermBase):
@@ -239,6 +288,7 @@ class ActionSmoothnessPenalty_type(ManagerTermBase):
         env,
         w_biped: float = 1.0,
         w_quad: float = -0.00,
+        w_hex: float = -0.00,
         use_mask: bool = True,
         warmup_steps: int = 5,   # 0=不额外按episode_length_buf屏蔽；你也可以设 3/5
         acc_clip: float = 10.0,  # 例如 10.0；None=不clip
@@ -247,6 +297,7 @@ class ActionSmoothnessPenalty_type(ManagerTermBase):
         self.dt = env.step_dt
         self.w_biped = float(w_biped)
         self.w_quad = float(w_quad)
+        self.w_hex = float(w_hex)
         self.use_mask = bool(use_mask)
         self.warmup_steps = int(warmup_steps)
         self.acc_clip = acc_clip
@@ -283,8 +334,9 @@ class ActionSmoothnessPenalty_type(ManagerTermBase):
         # 类型权重（biped/quad 不同）
         if hasattr(env, "env_type"):
             et = env.env_type
-            # et: 0=biped, 1=quad
-            w = torch.where(et == 0, self.w_biped, self.w_quad).to(penalty.dtype)
+            w = torch.full_like(penalty, self.w_biped, dtype=penalty.dtype)
+            w = torch.where(et == 1, torch.full_like(penalty, self.w_quad, dtype=penalty.dtype), w)
+            w = torch.where(et == 2, torch.full_like(penalty, self.w_hex, dtype=penalty.dtype), w)
             penalty = penalty * w
 
         # 更新历史（照你写法）
@@ -304,14 +356,18 @@ def undesired_contacts_type_weighted(
     threshold: float,
     w_biped: float,
     w_quad: float,
+    w_hex: float,
     biped_sensor_cfg: SceneEntityCfg = SceneEntityCfg(
         "biped_contact_forces", body_names=BRAVER_biped_UNDESIRED_CONTACTS_NAMES
     ),
     quad_sensor_cfg: SceneEntityCfg = SceneEntityCfg(
         "quad_contact_forces", body_names=BRAVER_QUAD_UNDESIRED_CONTACTS_NAMES
     ),
+    hex_sensor_cfg: SceneEntityCfg = SceneEntityCfg(
+        "hexapod_contact_forces", body_names=BRAVER_HEXAPOD_UNDESIRED_CONTACTS_NAMES
+    ),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
@@ -326,18 +382,27 @@ def undesired_contacts_type_weighted(
         is_contact = torch.max(torch.norm(net, dim=-1), dim=1)[0] > threshold         # (Nq,4)
         out[quad_ids] = w_quad * torch.sum(is_contact, dim=1)
 
+    if hex_ids.numel() > 0:
+        s: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        net = s.data.net_forces_w_history[hex_ids][:, :, hex_sensor_cfg.body_ids]   # (Nh,H,6,3)
+        is_contact = torch.max(torch.norm(net, dim=-1), dim=1)[0] > threshold       # (Nh,6)
+        out[hex_ids] = w_hex * torch.sum(is_contact, dim=1)
+
     return out
 
 def contact_forces_type_weighted(
     env,
     threshold_biped: float,
     threshold_quad: float,
+    threshold_hex: float,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_sensor_cfg: SceneEntityCfg = SceneEntityCfg("biped_contact_forces"),
     quad_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("quad_contact_forces"),
+    hex_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod_contact_forces"),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
@@ -354,6 +419,13 @@ def contact_forces_type_weighted(
         vio = peak - threshold_quad
         out[quad_ids] = w_quad * torch.sum(vio.clamp(min=0.0), dim=1)
 
+    if hex_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        net = cs.data.net_forces_w_history[hex_ids]
+        peak = torch.max(torch.norm(net[:, :, hex_sensor_cfg.body_ids], dim=-1), dim=1)[0]
+        vio = peak - threshold_hex
+        out[hex_ids] = w_hex * torch.sum(vio.clamp(min=0.0), dim=1)
+
     return out
 
 
@@ -366,12 +438,15 @@ def joint_pos_limits_type_weighted(
     env,
     w_biped: float,
     w_quad: float,
+    w_hex: float,
     biped_cfg: SceneEntityCfg,
     quad_cfg:  SceneEntityCfg,
+    hex_cfg:  SceneEntityCfg,
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     biped: Articulation = env.scene[biped_cfg.name]
     quad:  Articulation = env.scene[quad_cfg.name]
+    hexa:  Articulation = env.scene[hex_cfg.name]
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
@@ -394,16 +469,28 @@ def joint_pos_limits_type_weighted(
         ool = -(pos - low).clamp(max=0.0) + (pos - high).clamp(min=0.0)
         out[quad_ids] = w_quad * torch.sum(ool, dim=1)
 
+    if hex_ids.numel() > 0:
+        if (not hasattr(hex_cfg, "joint_ids")) or (hex_cfg.joint_ids is None):
+            raise RuntimeError("hex_cfg.joint_ids not resolved. Provide joint_names+preserve_order=True in SceneEntityCfg.")
+        j = hex_cfg.joint_ids
+        pos = hexa.data.joint_pos[hex_ids][:, j]
+        low = hexa.data.soft_joint_pos_limits[hex_ids][:, j, 0]
+        high= hexa.data.soft_joint_pos_limits[hex_ids][:, j, 1]
+        ool = -(pos - low).clamp(max=0.0) + (pos - high).clamp(min=0.0)
+        out[hex_ids] = w_hex * torch.sum(ool, dim=1)
+
     return out
 #用
 def joint_deviation_l1_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
@@ -416,6 +503,11 @@ def joint_deviation_l1_type_weighted(
         angle = a.data.joint_pos[quad_ids][:, quad_cfg.joint_ids] - a.data.default_joint_pos[quad_ids][:, quad_cfg.joint_ids]
         out[quad_ids] = w_quad * torch.sum(torch.abs(angle), dim=1)
 
+    if hex_ids.numel() > 0:
+        a: Articulation = env.scene[hex_cfg.name]
+        angle = a.data.joint_pos[hex_ids][:, hex_cfg.joint_ids] - a.data.default_joint_pos[hex_ids][:, hex_cfg.joint_ids]
+        out[hex_ids] = w_hex * torch.sum(torch.abs(angle), dim=1)
+
     return out
 
 def stand_still_joint_deviation_l1_type_weighted(
@@ -424,13 +516,15 @@ def stand_still_joint_deviation_l1_type_weighted(
     command_threshold: float = 0.06,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     cmd = env.command_manager.get_command(command_name)
     still_mask = (torch.norm(cmd[:, :2], dim=1) < command_threshold).float()
 
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
@@ -443,14 +537,21 @@ def stand_still_joint_deviation_l1_type_weighted(
         angle = a.data.joint_pos[quad_ids][:, quad_cfg.joint_ids] - a.data.default_joint_pos[quad_ids][:, quad_cfg.joint_ids]
         out[quad_ids] = w_quad * torch.sum(torch.abs(angle), dim=1) * still_mask[quad_ids]
 
+    if hex_ids.numel() > 0:
+        a: Articulation = env.scene[hex_cfg.name]
+        angle = a.data.joint_pos[hex_ids][:, hex_cfg.joint_ids] - a.data.default_joint_pos[hex_ids][:, hex_cfg.joint_ids]
+        out[hex_ids] = w_hex * torch.sum(torch.abs(angle), dim=1) * still_mask[hex_ids]
+
     return out
 
 def joint_power_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """
     Type-weighted version of joint_power_l2.
@@ -458,7 +559,7 @@ def joint_power_l2_type_weighted(
     For each env:
       penalty = sum(|tau * qd|) over the joints specified by that type's cfg.joint_ids
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     if biped_ids.numel() > 0:
@@ -471,14 +572,21 @@ def joint_power_l2_type_weighted(
         jp = a.data.applied_torque[quad_ids][:, quad_cfg.joint_ids] * a.data.joint_vel[quad_ids][:, quad_cfg.joint_ids]
         out[quad_ids] = w_quad * torch.sum(torch.abs(jp), dim=1)
 
+    if hex_ids.numel() > 0:
+        a: Articulation = env.scene[hex_cfg.name]
+        jp = a.data.applied_torque[hex_ids][:, hex_cfg.joint_ids] * a.data.joint_vel[hex_ids][:, hex_cfg.joint_ids]
+        out[hex_ids] = w_hex * torch.sum(torch.abs(jp), dim=1)
+
     return out
 #用
 def joint_vel_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """
     Type-weighted joint velocity L2 penalty.
@@ -487,7 +595,7 @@ def joint_vel_l2_type_weighted(
       penalty = sum( qd^2 ) over joints specified by that type's cfg.joint_ids
     Output is >=0; typically use a NEGATIVE RewTerm.weight in cfg to penalize it.
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     if biped_ids.numel() > 0:
@@ -500,14 +608,21 @@ def joint_vel_l2_type_weighted(
         qd = a.data.joint_vel[quad_ids][:, quad_cfg.joint_ids]
         out[quad_ids] = w_quad * torch.sum(torch.square(qd), dim=1)
 
+    if hex_ids.numel() > 0:
+        a: Articulation = env.scene[hex_cfg.name]
+        qd = a.data.joint_vel[hex_ids][:, hex_cfg.joint_ids]
+        out[hex_ids] = w_hex * torch.sum(torch.square(qd), dim=1)
+
     return out
 #用
 def joint_acc_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """
     Type-weighted joint acceleration L2 penalty.
@@ -516,7 +631,7 @@ def joint_acc_l2_type_weighted(
       penalty = sum( qdd^2 ) over joints specified by that type's cfg.joint_ids
     Output is >=0; typically use a NEGATIVE RewTerm.weight in cfg to penalize it.
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     if biped_ids.numel() > 0:
@@ -529,14 +644,21 @@ def joint_acc_l2_type_weighted(
         qdd = a.data.joint_acc[quad_ids][:, quad_cfg.joint_ids]
         out[quad_ids] = w_quad * torch.sum(torch.square(qdd), dim=1)
 
+    if hex_ids.numel() > 0:
+        a: Articulation = env.scene[hex_cfg.name]
+        qdd = a.data.joint_acc[hex_ids][:, hex_cfg.joint_ids]
+        out[hex_ids] = w_hex * torch.sum(torch.square(qdd), dim=1)
+
     return out
 #用
 def joint_torques_l2_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """
     Type-weighted joint torque L2 penalty.
@@ -545,7 +667,7 @@ def joint_torques_l2_type_weighted(
       penalty = sum( tau^2 ) over joints specified by that type's cfg.joint_ids
     Output is >=0; typically use a NEGATIVE RewTerm.weight in cfg to penalize it.
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     if biped_ids.numel() > 0:
@@ -558,14 +680,21 @@ def joint_torques_l2_type_weighted(
         tau = a.data.applied_torque[quad_ids][:, quad_cfg.joint_ids]
         out[quad_ids] = w_quad * torch.sum(torch.square(tau), dim=1)
 
+    if hex_ids.numel() > 0:
+        a: Articulation = env.scene[hex_cfg.name]
+        tau = a.data.applied_torque[hex_ids][:, hex_cfg.joint_ids]
+        out[hex_ids] = w_hex * torch.sum(torch.square(tau), dim=1)
+
     return out
 #用
 def energy_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """
     Type-weighted energy penalty:
@@ -573,7 +702,7 @@ def energy_type_weighted(
 
     Output is >=0; typically set a NEGATIVE RewTerm.weight in cfg to penalize energy usage.
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     if biped_ids.numel() > 0:
@@ -588,6 +717,12 @@ def energy_type_weighted(
         qfrc = a.data.applied_torque[quad_ids][:, quad_cfg.joint_ids]
         out[quad_ids] = w_quad * torch.sum(torch.abs(qvel) * torch.abs(qfrc), dim=1)
 
+    if hex_ids.numel() > 0:
+        a: Articulation = env.scene[hex_cfg.name]
+        qvel = a.data.joint_vel[hex_ids][:, hex_cfg.joint_ids]
+        qfrc = a.data.applied_torque[hex_ids][:, hex_cfg.joint_ids]
+        out[hex_ids] = w_hex * torch.sum(torch.abs(qvel) * torch.abs(qfrc), dim=1)
+
     return out
 
 def joint_position_penalty_type_weighted(
@@ -595,14 +730,18 @@ def joint_position_penalty_type_weighted(
     # biped/quad 内部权重
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     # biped/quad 各自参数（允许不同）
     stand_still_scale_biped: float = 1.0,
     stand_still_scale_quad: float = 1.0,
+    stand_still_scale_hex: float = 1.0,
     velocity_threshold_biped: float = 0.0,
     velocity_threshold_quad: float = 0.0,
+    velocity_threshold_hex: float = 0.0,
     # 资产 cfg
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
     command_name: str = "base_velocity",
 ) -> torch.Tensor:
     """
@@ -617,7 +756,7 @@ def joint_position_penalty_type_weighted(
 
     This version applies the same logic separately for biped/quad, allowing different thresholds/scales/weights.
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     cmd = torch.linalg.norm(env.command_manager.get_command(command_name), dim=1)  # same for all
@@ -639,6 +778,9 @@ def joint_position_penalty_type_weighted(
     if quad_ids.numel() > 0:
         out[quad_ids] = w_quad * _compute(quad_ids, quad_cfg, velocity_threshold_quad, stand_still_scale_quad)
 
+    if hex_ids.numel() > 0:
+        out[hex_ids] = w_hex * _compute(hex_ids, hex_cfg, velocity_threshold_hex, stand_still_scale_hex)
+
     return out
 
 
@@ -652,6 +794,7 @@ def feet_distance_type_weighted(
     env,
     w_biped: float,
     w_quad: float,
+    w_hex: float,
     # biped range
     biped_min: float = 0.2,
     biped_max: float = 0.56,
@@ -660,12 +803,14 @@ def feet_distance_type_weighted(
     quad_max: float = 0.65,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped",body_names=BRAVER_biped_FOOT_NAMES),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad",body_names=BRAVER_QUAD_FOOT_NAMES),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod",body_names=BRAVER_HEXAPOD_FOOT_NAMES),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     biped: Articulation = env.scene[biped_cfg.name]
     quad:  Articulation = env.scene[quad_cfg.name]
+    hexa:  Articulation = env.scene[hex_cfg.name]
 
     if biped_ids.numel() > 0:
         idx = biped.find_bodies(BRAVER_biped_FOOT_NAMES)[0]  # [2]
@@ -683,24 +828,39 @@ def feet_distance_type_weighted(
         r_rear  = torch.clip(quad_min - d_rear,  0, 1) + torch.clip(d_rear  - quad_max, 0, 1)
         out[quad_ids] = w_quad * (r_front + r_rear)
 
+    if hex_ids.numel() > 0:
+        idx = hexa.find_bodies(BRAVER_HEXAPOD_FOOT_NAMES)[0]  # [6]
+        pos = hexa.data.body_link_pos_w[hex_ids][:, idx, :2]  # (Nh,6,2)
+        d_pairs = []
+        for i in range(0, 6, 2):
+            d_pairs.append(torch.norm(pos[:, i] - pos[:, i + 1], dim=-1))
+        d_pairs = torch.stack(d_pairs, dim=1)
+        r_pairs = torch.clip(quad_min - d_pairs, 0, 1) + torch.clip(d_pairs - quad_max, 0, 1)
+        out[hex_ids] = w_hex * torch.sum(r_pairs, dim=1)
+
     return out
 #用
 def feet_regulation_set_type_weighted(
     env,
     w_biped: float,
     w_quad: float,
+    w_hex: float,
     foot_radius_biped: float,
     foot_radius_quad: float,
+    foot_radius_hex: float,
     base_height_target_biped: float,
     base_height_target_quad: float,
+    base_height_target_hex: float,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped", body_names=BRAVER_biped_FOOT_NAMES),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod",  body_names=BRAVER_HEXAPOD_FOOT_NAMES),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
 
     if biped_ids.numel() > 0:
         feet_h = torch.clip(biped.data.body_pos_w[biped_ids][:, biped_cfg.body_ids, 2] - foot_radius_biped, 0, 1)
@@ -716,28 +876,41 @@ def feet_regulation_set_type_weighted(
         pen = torch.sum(scale * torch.square(torch.norm(feet_v_xy, dim=-1)), dim=1)
         out[quad_ids] = w_quad * torch.clip(pen, -2, 2)
 
+    if hex_ids.numel() > 0:
+        feet_h = torch.clip(hexa.data.body_pos_w[hex_ids][:, hex_cfg.body_ids, 2] - foot_radius_hex, 0, 1)
+        feet_v_xy = hexa.data.body_lin_vel_w[hex_ids][:, hex_cfg.body_ids, :2]
+        scale = torch.exp(-feet_h / (0.05 * base_height_target_hex))
+        pen = torch.sum(scale * torch.square(torch.norm(feet_v_xy, dim=-1)), dim=1)
+        out[hex_ids] = w_hex * torch.clip(pen, -2, 2)
+
     return out
 #用
 def foot_landing_vel_type_weighted(
     env,
     w_biped: float,
     w_quad: float,
+    w_hex: float,
     foot_radius_biped: float,
     foot_radius_quad: float,
+    foot_radius_hex: float,
     about_landing_threshold_biped: float,
     about_landing_threshold_quad: float,
+    about_landing_threshold_hex: float,
     # contact sensor（用 net_forces_w 的 z 分量判断接触）
     biped_sensor_cfg: SceneEntityCfg = SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
     quad_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    hex_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod_contact_forces",  body_names=BRAVER_HEXAPOD_FOOT_NAMES),
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped", body_names=BRAVER_biped_FOOT_NAMES),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod",  body_names=BRAVER_HEXAPOD_FOOT_NAMES),
     contact_force_z_threshold: float = 2.0,
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     biped = env.scene[biped_cfg.name]
     quad  = env.scene[quad_cfg.name]
+    hexa  = env.scene[hex_cfg.name]
 
     if biped_ids.numel() > 0:
         cs: ContactSensor = env.scene.sensors[biped_sensor_cfg.name]
@@ -759,20 +932,33 @@ def foot_landing_vel_type_weighted(
         pen = torch.sum(landing_z * landing_z, dim=1)
         out[quad_ids] = w_quad * pen
 
+    if hex_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        z_vels = hexa.data.body_lin_vel_w[hex_ids][:, hex_cfg.body_ids, 2]
+        contacts = cs.data.net_forces_w[hex_ids][:, hex_sensor_cfg.body_ids, 2] > contact_force_z_threshold
+        foot_h = torch.clip(hexa.data.body_pos_w[hex_ids][:, hex_cfg.body_ids, 2] - foot_radius_hex, 0, 1)
+        about_to_land = (foot_h < about_landing_threshold_hex) & (~contacts) & (z_vels < 0.0)
+        landing_z = torch.where(about_to_land, z_vels, torch.zeros_like(z_vels))
+        pen = torch.sum(landing_z * landing_z, dim=1)
+        out[hex_ids] = w_hex * pen
+
     return out
 #用
 def feet_velocity_y_abs_sum_type_weighted(
     env,
     w_biped: float,
     w_quad: float,
+    w_hex: float,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped", body_names=BRAVER_biped_FOOT_NAMES),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod",  body_names=BRAVER_HEXAPOD_FOOT_NAMES),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
 
     if biped_ids.numel() > 0:
         v = biped.data.body_lin_vel_w[biped_ids][:, biped_cfg.body_ids, 1]
@@ -782,26 +968,36 @@ def feet_velocity_y_abs_sum_type_weighted(
         v = quad.data.body_lin_vel_w[quad_ids][:, quad_cfg.body_ids, 1]
         out[quad_ids] = w_quad * torch.sum(torch.abs(v), dim=1)
 
+    if hex_ids.numel() > 0:
+        v = hexa.data.body_lin_vel_w[hex_ids][:, hex_cfg.body_ids, 1]
+        out[hex_ids] = w_hex * torch.sum(torch.abs(v), dim=1)
+
     return out
 #用
 def foot_clearance_reward1_type_weighted(
     env,
     w_biped: float,
     w_quad: float,
+    w_hex: float,
     target_height_biped: float,
     target_height_quad: float,
+    target_height_hex: float,
     std_biped: float,
     std_quad: float,
+    std_hex: float,
     tanh_mult_biped: float,
     tanh_mult_quad: float,
+    tanh_mult_hex: float,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped", body_names=BRAVER_biped_FOOT_NAMES),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad",  body_names=BRAVER_QUAD_FOOT_NAMES),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod",  body_names=BRAVER_HEXAPOD_FOOT_NAMES),
 ) -> torch.Tensor:
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
 
     if biped_ids.numel() > 0:
         z_err = (biped.data.body_pos_w[biped_ids][:, biped_cfg.body_ids, 2] - target_height_biped) ** 2
@@ -817,6 +1013,13 @@ def foot_clearance_reward1_type_weighted(
         val = torch.exp(-torch.sum(z_err * v_tanh, dim=1) / std_quad)
         out[quad_ids] = w_quad * val
 
+    if hex_ids.numel() > 0:
+        z_err = (hexa.data.body_pos_w[hex_ids][:, hex_cfg.body_ids, 2] - target_height_hex) ** 2
+        vxy = torch.norm(hexa.data.body_lin_vel_w[hex_ids][:, hex_cfg.body_ids, :2], dim=2)
+        v_tanh = torch.tanh(tanh_mult_hex * vxy)
+        val = torch.exp(-torch.sum(z_err * v_tanh, dim=1) / std_hex)
+        out[hex_ids] = w_hex * val
+
     return out
 #用
 def feet_air_time_type_weighted(
@@ -825,11 +1028,14 @@ def feet_air_time_type_weighted(
     # biped/quad 各自阈值 + 内部权重
     threshold_biped: float,
     threshold_quad: float,
+    threshold_hex: float,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     # biped/quad 各自传感器（以及脚 body_ids）
     biped_sensor_cfg: SceneEntityCfg = SceneEntityCfg("biped_contact_forces"),
     quad_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("quad_contact_forces"),
+    hex_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod_contact_forces"),
     # 维持你原逻辑：cmd 很小则 reward=0
     cmd_min_norm: float = 0.1,
 ) -> torch.Tensor:
@@ -839,7 +1045,7 @@ def feet_air_time_type_weighted(
     - For biped envs: uses biped sensor, biped body_ids, threshold_biped, scaled by w_biped
     - For quad envs:  uses quad  sensor, quad  body_ids, threshold_quad,  scaled by w_quad
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     # no reward for zero command (same as original)
@@ -860,6 +1066,13 @@ def feet_air_time_type_weighted(
         rew = torch.sum((last_air_time - threshold_quad) * first_contact, dim=1)
         out[quad_ids] = w_quad * rew * move_mask[quad_ids]
 
+    if hex_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        first_contact = cs.compute_first_contact(env.step_dt)[hex_ids][:, hex_sensor_cfg.body_ids]
+        last_air_time = cs.data.last_air_time[hex_ids][:, hex_sensor_cfg.body_ids]
+        rew = torch.sum((last_air_time - threshold_hex) * first_contact, dim=1)
+        out[hex_ids] = w_hex * rew * move_mask[hex_ids]
+
     return out
 
 def feet_stumble_type_weighted(
@@ -867,10 +1080,13 @@ def feet_stumble_type_weighted(
     # biped/quad 各自 sensor + 阈值尺度 + 内部权重
     biped_sensor_cfg: SceneEntityCfg,
     quad_sensor_cfg:  SceneEntityCfg,
+    hex_sensor_cfg:  SceneEntityCfg,
     scale_biped: float = 5.0,
     scale_quad: float = 5.0,
+    scale_hex: float = 5.0,
     w_biped: float = -1.0,
     w_quad: float = -1.0,
+    w_hex: float = -1.0,
     eps: float = 1e-8,
 ) -> torch.Tensor:
     """
@@ -880,7 +1096,7 @@ def feet_stumble_type_weighted(
         ||F|| > scale * |Fz|
     触发则计数（按脚维度统计），最后对每个 env 求和得到 penalty。
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     def _stumble_penalty(cs: ContactSensor, ids: torch.Tensor, cfg: SceneEntityCfg, scale: float) -> torch.Tensor:
@@ -900,14 +1116,20 @@ def feet_stumble_type_weighted(
         cs: ContactSensor = env.scene.sensors[quad_sensor_cfg.name]
         out[quad_ids] = w_quad * _stumble_penalty(cs, quad_ids, quad_sensor_cfg, scale_quad)
 
+    if hex_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        out[hex_ids] = w_hex * _stumble_penalty(cs, hex_ids, hex_sensor_cfg, scale_hex)
+
     return out
 
 def air_time_variance_penalty_type_weighted(
     env,
     w_biped: float = 1.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     biped_sensor_cfg: SceneEntityCfg = SceneEntityCfg("biped_contact_forces"),
     quad_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("quad_contact_forces"),
+    hex_sensor_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod_contact_forces"),
     clip_max: float = 0.5,
 ) -> torch.Tensor:
     """
@@ -915,7 +1137,7 @@ def air_time_variance_penalty_type_weighted(
 
     Returns >=0; typically use a NEGATIVE RewTerm.weight to penalize variance.
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
 
     def _pen(cs: ContactSensor, ids: torch.Tensor, cfg: SceneEntityCfg) -> torch.Tensor:
@@ -933,6 +1155,10 @@ def air_time_variance_penalty_type_weighted(
         cs: ContactSensor = env.scene.sensors[quad_sensor_cfg.name]
         out[quad_ids] = w_quad * _pen(cs, quad_ids, quad_sensor_cfg)
 
+    if hex_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        out[hex_ids] = w_hex * _pen(cs, hex_ids, hex_sensor_cfg)
+
     return out
 
 
@@ -945,6 +1171,7 @@ def feet_gait_type_weighted(
     env:MultiLocoEnv,    
     biped_sensor_cfg: SceneEntityCfg,
     quad_sensor_cfg: SceneEntityCfg,
+    hex_sensor_cfg: SceneEntityCfg,
     # biped gait params
     period_biped: float,
     offset_biped: list[float],   # len=2
@@ -955,6 +1182,11 @@ def feet_gait_type_weighted(
     offset_quad: list[float],    # len=4
     threshold_quad: float,
     w_quad: float,
+    # hex gait params
+    period_hex: float,
+    offset_hex: list[float],    # len=6
+    threshold_hex: float,
+    w_hex: float,
     # speed command gating
     command_name: str | None = None,
     cmd_min_norm: float = 0.01,
@@ -964,7 +1196,7 @@ def feet_gait_type_weighted(
     device = env.device
     out = torch.zeros(env.num_envs, dtype=torch.float32, device=device)
 
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
 
     # --------- common: global phase (per env) ----------
     # shape: (N,1)
@@ -1011,6 +1243,25 @@ def feet_gait_type_weighted(
 
         out[quad_ids] = w_quad * r
 
+    # --------- hex ----------
+    if hex_ids.numel() > 0:
+        cs: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        is_contact = cs.data.current_contact_time[hex_ids][:, hex_sensor_cfg.body_ids] > 0  # (Nh,6)
+
+        global_phase = torch.remainder(t[hex_ids], period_hex) / period_hex  # (Nh,1)
+
+        phases = []
+        for off in offset_hex:
+            phases.append(torch.remainder(global_phase + off, 1.0))
+        leg_phase = torch.cat(phases, dim=-1)  # (Nh,6)
+
+        r = torch.zeros(hex_ids.numel(), device=device, dtype=torch.float32)
+        for i in range(len(hex_sensor_cfg.body_ids)):  # 6
+            is_stance = leg_phase[:, i] < threshold_hex
+            r += (~(is_stance ^ is_contact[:, i])).to(torch.float32)
+
+        out[hex_ids] = w_hex * r
+
     # --------- speed command gating ----------
     if command_name is not None:
         cmd = env.command_manager.get_command(command_name)  # (N,3) typically
@@ -1023,17 +1274,20 @@ def trot_typed_weight(
     env,
     biped_asset_cfg: SceneEntityCfg,
     quad_asset_cfg: SceneEntityCfg,
+    hex_asset_cfg: SceneEntityCfg,
     biped_sensor_cfg: SceneEntityCfg,
     quad_sensor_cfg: SceneEntityCfg,
+    hex_sensor_cfg: SceneEntityCfg,
     w_biped: float = 0.0,
     w_quad: float = 1.0,
+    w_hex: float = 1.0,
     command_name: str = "base_velocity",    
 ) -> torch.Tensor:
     # 速度相关权重
     commands = env.command_manager.get_command(command_name)
     scale = 0.2 * torch.clip(torch.abs(commands[:,0]) / (torch.norm(commands[:,1:3],dim=-1) + 0.001), 0.01, 1)
 
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device)
 
     if biped_ids.numel() > 0:
@@ -1064,6 +1318,17 @@ def trot_typed_weight(
 
         out[quad_ids] = w_quad * (contact_results_quad + dof_results_quad) * scale[quad_ids]
 
+    if hex_ids.numel() > 0:
+        contact_sensor_hex: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
+        contacts_hex = contact_sensor_hex.data.net_forces_w[hex_ids][:, hex_sensor_cfg.body_ids, 2] > 0.1
+        contact_results_hex = torch.sum(contacts_hex, dim=1)
+
+        asset_hex: Articulation = env.scene[hex_asset_cfg.name]
+        dof_pos_hex = asset_hex.data.joint_pos[hex_ids]
+        dof_results_hex = torch.sum(torch.square(dof_pos_hex[:, 1:3] - dof_pos_hex[:, 16:18]), dim=1)
+
+        out[hex_ids] = w_hex * (contact_results_hex + dof_results_hex) * scale[hex_ids]
+
     return out
 
 def trot_phase(
@@ -1090,8 +1355,3 @@ def trot_phase(
     dof_results = dof_results1 + dof_results2
     dof_results = dof_results * (0.2 * torch.clip(torch.abs(commands[:,0]) / (torch.norm(commands[:,1:3],dim=-1) + 0.001), 0.01, 1))
     return contact_results + dof_results
-
-
-
-
-

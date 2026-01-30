@@ -24,39 +24,52 @@ def _get_active_asset(
     raise NotImplementedError
 
 def _active_ids(env):
-    t = env.env_type  # 0=biped, 1=quad（按你工程约定）
+    t = env.env_type  # 0=biped, 1=quad, 2=hex
     biped_ids = torch.nonzero(t == 0, as_tuple=False).squeeze(-1)
     quad_ids  = torch.nonzero(t == 1, as_tuple=False).squeeze(-1)
-    return biped_ids, quad_ids
+    hex_ids  = torch.nonzero(t == 2, as_tuple=False).squeeze(-1)
+    return biped_ids, quad_ids, hex_ids
 
 
-def get_active_root_height(env, biped_cfg: SceneEntityCfg, quad_cfg: SceneEntityCfg) -> torch.Tensor:
+def get_active_root_height(
+    env,
+    biped_cfg: SceneEntityCfg,
+    quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
+) -> torch.Tensor:
     """Return root height z for active robot in each env. Shape: (num_envs,)."""
     if not hasattr(env, "env_type"):
         raise RuntimeError("env.env_type not found. Add sample_env_type reset event first.")
 
     biped: Articulation = env.scene[biped_cfg.name]
     quad: Articulation = env.scene[quad_cfg.name]
+    hexa: Articulation = env.scene[hex_cfg.name]
 
     z_biped = biped.data.root_pos_w[:, 2]
     z_quad = quad.data.root_pos_w[:, 2]
+    z_hex = hexa.data.root_pos_w[:, 2]
 
     is_quad = env.env_type == 1
-    return torch.where(is_quad, z_quad, z_biped)
+    is_hex = env.env_type == 2
+    out = torch.where(is_quad, z_quad, z_biped)
+    return torch.where(is_hex, z_hex, out)
 
 def is_fallen(
     env: MultiLocoEnv,
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
     min_height_biped: float = 0.18,
     min_height_quad: float = 0.22,
+    min_height_hex: float = 0.22,
     grace_time: float = 0.2,
 ) -> torch.Tensor:
-    z = get_active_root_height(env, biped_cfg, quad_cfg)
+    z = get_active_root_height(env, biped_cfg, quad_cfg, hex_cfg)
 
     # per-env min height
     min_h = torch.full_like(z, min_height_biped)
     min_h = torch.where(env.env_type == 1, torch.full_like(z, min_height_quad), min_h)
+    min_h = torch.where(env.env_type == 2, torch.full_like(z, min_height_hex), min_h)
 
     # time since last reset (seconds)
     t = env.episode_length_buf.to(torch.float32) * float(env.step_dt)
@@ -76,8 +89,10 @@ def illegal_contact_multi(
     env: MultiLocoEnv,
     biped_sensor_cfg: SceneEntityCfg,
     quad_sensor_cfg: SceneEntityCfg,
+    hex_sensor_cfg: SceneEntityCfg,
     threshold_biped: float = 1.0,
     threshold_quad: float = 1.0,
+    threshold_hex: float = 1.0,
 ) -> torch.Tensor:
     """Terminate when illegal contact force exceeds threshold on ACTIVE robot (biped/quad).
 
@@ -97,13 +112,16 @@ def illegal_contact_multi(
         raise RuntimeError("env.env_type not found. Call sample_env_type on reset first.")
 
     is_quad = (env.env_type == 1)  # (N,) bool
+    is_hex = (env.env_type == 2)
 
     # sensors
     b_sensor: ContactSensor = env.scene.sensors[biped_sensor_cfg.name]
     q_sensor: ContactSensor = env.scene.sensors[quad_sensor_cfg.name]
+    h_sensor: ContactSensor = env.scene.sensors[hex_sensor_cfg.name]
 
     b_ids = getattr(biped_sensor_cfg, "body_ids", None)
     q_ids = getattr(quad_sensor_cfg, "body_ids", None)
+    h_ids = getattr(hex_sensor_cfg, "body_ids", None)
 
     def _any_exceed(sensor: ContactSensor, ids, thr: float) -> torch.Tensor:
         if ids is None or len(ids) == 0:
@@ -117,14 +135,17 @@ def illegal_contact_multi(
 
     done_b = _any_exceed(b_sensor, b_ids, threshold_biped)
     done_q = _any_exceed(q_sensor, q_ids, threshold_quad)
+    done_h = _any_exceed(h_sensor, h_ids, threshold_hex)
 
-    return torch.where(is_quad, done_q, done_b)
+    out = torch.where(is_quad, done_q, done_b)
+    return torch.where(is_hex, done_h, out)
 
 
 def bad_body_posture_multi(
     env: MultiLocoEnv,
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
     roll_threshold: float = math.pi / 6,
     pitch_threshold: float = math.pi / 4,
 ) -> torch.Tensor:
@@ -141,15 +162,22 @@ def bad_body_posture_multi(
     if not hasattr(env, "env_type"):
         raise RuntimeError("env.env_type not found. Add sample_env_type reset event first.")
     is_quad = (env.env_type == 1)  # (N,) bool
+    is_hex = (env.env_type == 2)
 
     biped: RigidObject = env.scene[biped_cfg.name]
     quad:  RigidObject = env.scene[quad_cfg.name]
+    hexa:  RigidObject = env.scene[hex_cfg.name]
 
     # root pose (select per env)
     quat_w = torch.where(
         is_quad.unsqueeze(-1),
         quad.data.root_com_quat_w,
         biped.data.root_com_quat_w,
+    )
+    quat_w = torch.where(
+        is_hex.unsqueeze(-1),
+        hexa.data.root_com_quat_w,
+        quat_w,
     )
     # base_z = torch.where(
     #     is_quad,
@@ -202,8 +230,10 @@ def bad_orientation_type_gated(
     env,
     limit_angle_biped: float,
     limit_angle_quad: float,
+    limit_angle_hex: float,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """
     Terminate when the active robot's orientation is too far from upright.
@@ -211,7 +241,7 @@ def bad_orientation_type_gated(
 
     Returns: bool tensor [num_envs]
     """
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     out = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
 
     if biped_ids.numel() > 0:
@@ -223,5 +253,10 @@ def bad_orientation_type_gated(
         a: RigidObject = env.scene[quad_cfg.name]
         ang = torch.acos((-a.data.projected_gravity_b[quad_ids, 2]).clamp(-1.0, 1.0)).abs()
         out[quad_ids] = ang > limit_angle_quad
+
+    if hex_ids.numel() > 0:
+        a: RigidObject = env.scene[hex_cfg.name]
+        ang = torch.acos((-a.data.projected_gravity_b[hex_ids, 2]).clamp(-1.0, 1.0)).abs()
+        out[hex_ids] = ang > limit_angle_hex
 
     return out

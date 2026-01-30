@@ -807,8 +807,8 @@ class ActorCriticMultiCritic(nn.Module):
 
 class MorphGNNEncoder(nn.Module):
     """
-    Real-topology GNN for N=12 joints (nodes).
-    Node features: [q, qd] -> z_morph [B, D]
+    Real-topology GNN for N joints (nodes).
+    Node features: [mask, q, qd] -> z_morph [B, D]
     Graph structure comes from real linkage (edges).
     """
     def __init__(
@@ -869,7 +869,7 @@ class MorphGNNEncoder(nn.Module):
         deg = A.sum(dim=1, keepdim=True).clamp_min(1.0)
         return A / deg
 
-    def forward(self, node_feat: torch.Tensor) -> torch.Tensor:
+    def forward(self, node_feat: torch.Tensor, node_mask: torch.Tensor | None = None) -> torch.Tensor:
         """
         node_feat: [B, N, F]
         returns z: [B, D]
@@ -878,13 +878,19 @@ class MorphGNNEncoder(nn.Module):
         h_nb = torch.einsum("ij,bjh->bih", self.A_norm, h)
         h = h + h_nb
         h = self.mlp2(h)  # [B,N,D]
-        z = h.mean(dim=1)  # global mean pooling over 12 nodes
+        if node_mask is None:
+            z = h.mean(dim=1)
+        else:
+            m = node_mask.unsqueeze(-1).float()
+            h = h * m
+            denom = m.sum(dim=1).clamp_min(1.0)
+            z = h.sum(dim=1) / denom
         return z
 
 class ActorCriticMultiCritic_GNN(nn.Module):
     """
     - One actor
-    - Two critics (biped/quad), BUT value is soft-mixture via learned gate(z_morph)
+    - Three critics (biped/quad/hex), BUT value is soft-mixture via learned gate(z_morph)
     - No env_type/onehot is used. Morphology is inferred from (act_mask + q + qd).
     """
     is_recurrent = False
@@ -907,25 +913,25 @@ class ActorCriticMultiCritic_GNN(nn.Module):
         # --- GNN configs ---
         use_morph_gnn: bool = True,
         morph_embed_dim: int = 32,
-        num_joints_super: int = 12,
+        num_joints_super: int = 18,
         gnn_hidden_dim: int = 128,
         # --- obs layout: based on your current cfg order ---
         # Policy obs order:
         # base_ang_vel(3), proj_gravity(3),
-        # joint_pos(12), joint_vel(12), last_action(12),
-        # gait_phase(2), gait_command(4),
-        # act_mask(12)  <-- you added and should keep as LAST
+        # joint_pos(18), joint_vel(18), last_action(18),
+        # gait_phase(2), gait_command(4), velocity_commands(3),
+        # act_mask(18)  <-- keep as LAST
         actor_joint_pos_start: int = 6,
-        actor_joint_vel_start: int = 18,
-        # actor_act_mask_is_last_12: bool = True,
+        actor_joint_vel_start: int = 24,
+        actor_act_mask_is_last_18: bool = True,
         # Critic obs order:
         # base_lin_vel(3), base_ang_vel(3), proj_gravity(3),
-        # joint_pos(12), joint_vel(12), last_action(12),
-        # gait_phase(2), gait_command(4),
-        # act_mask(12)  <-- keep as LAST
+        # joint_pos(18), joint_vel(18), last_action(18),
+        # gait_phase(2), gait_command(4), velocity_commands(3),
+        # act_mask(18)  <-- keep as LAST
         critic_joint_pos_start: int = 9,
-        critic_joint_vel_start: int = 21,
-        # critic_act_mask_is_last_12: bool = True,
+        critic_joint_vel_start: int = 27,
+        critic_act_mask_is_last_18: bool = True,
         **kwargs,
     ):
         if kwargs:
@@ -949,18 +955,18 @@ class ActorCriticMultiCritic_GNN(nn.Module):
         # ---- slices (actor) ----
         self.actor_joint_pos_slice = slice(actor_joint_pos_start, actor_joint_pos_start + self.num_joints_super)
         self.actor_joint_vel_slice = slice(actor_joint_vel_start, actor_joint_vel_start + self.num_joints_super)
-        # if actor_act_mask_is_last_12:
-        #     self.actor_mask_slice = slice(self.num_actor_obs - self.num_joints_super, self.num_actor_obs)
-        # else:
-        #     raise ValueError("actor_act_mask_is_last_12=False is not supported in this drop-in version.")
+        if actor_act_mask_is_last_18:
+            self.actor_mask_slice = slice(self.num_actor_obs - self.num_joints_super, self.num_actor_obs)
+        else:
+            raise ValueError("actor_act_mask_is_last_18=False is not supported in this drop-in version.")
 
         # ---- slices (critic) ----
         self.critic_joint_pos_slice = slice(critic_joint_pos_start, critic_joint_pos_start + self.num_joints_super)
         self.critic_joint_vel_slice = slice(critic_joint_vel_start, critic_joint_vel_start + self.num_joints_super)
-        # if critic_act_mask_is_last_12:
-        #     self.critic_mask_slice = slice(self.num_critic_obs - self.num_joints_super, self.num_critic_obs)
-        # else:
-        #     raise ValueError("critic_act_mask_is_last_12=False is not supported in this drop-in version.")
+        if critic_act_mask_is_last_18:
+            self.critic_mask_slice = slice(self.num_critic_obs - self.num_joints_super, self.num_critic_obs)
+        else:
+            raise ValueError("critic_act_mask_is_last_18=False is not supported in this drop-in version.")
 
         # ---- build networks with augmented dims ----
         actor_in_dim = self.num_actor_obs + (self.morph_embed_dim if self.use_morph_gnn else 0)
@@ -975,13 +981,16 @@ class ActorCriticMultiCritic_GNN(nn.Module):
         self.critic_quad = self._build_mlp(
             critic_in_dim, 1, critic_hidden_dims, act_fn, self.orthogonal_init, out_gain=0.01
         )
+        self.critic_hex = self._build_mlp(
+            critic_in_dim, 1, critic_hidden_dims, act_fn, self.orthogonal_init, out_gain=0.01
+        )
 
         # ---- morph gnn + gate ----
         if self.use_morph_gnn:
-            # node_feat = [q, qd] => dim=2
+            # node_feat = [mask, q, qd] => dim=3
             self.morph_gnn = MorphGNNEncoder(
                 num_nodes=self.num_joints_super,
-                node_feat_dim=2,
+                node_feat_dim=3,
                 embed_dim=self.morph_embed_dim,
                 hidden_dim=int(gnn_hidden_dim),
                 act_fn=act_fn,
@@ -989,16 +998,20 @@ class ActorCriticMultiCritic_GNN(nn.Module):
                     (0, 1), (1, 2),
                     (3, 4), (4, 5),
                     (6, 7), (7, 8),
-                    (9,10), (10,11),
+                    (9, 10), (10, 11),
+                    (12, 13), (13, 14),
+                    (15, 16), (16, 17),
                     (0, 3),
-                    (6, 9),
                     (3, 6),
+                    (6, 9),
+                    (9, 12),
+                    (12, 15),
                 ],
             )
             self.gate = nn.Sequential(
                 nn.Linear(self.morph_embed_dim, 64),
                 act_fn,
-                nn.Linear(64, 1),  # will apply sigmoid in evaluate()
+                nn.Linear(64, 3),  # softmax in evaluate()
             )
         else:
             self.morph_gnn = None
@@ -1068,18 +1081,21 @@ class ActorCriticMultiCritic_GNN(nn.Module):
 
     # ---------------- Morphology embedding ----------------
     def _compute_z_from_actor_obs(self, obs: torch.Tensor) -> torch.Tensor:
-        q = obs[:, self.actor_joint_pos_slice]  # [B,12]
-        qd = obs[:, self.actor_joint_vel_slice]  # [B,12]
-        node_feat = torch.stack([q, qd], dim=-1)  # [B,12,2]
-        # no mask provided -> all nodes assumed present
-        z = self.morph_gnn(node_feat)  # [B,D]
+        q = obs[:, self.actor_joint_pos_slice]  # [B,18]
+        qd = obs[:, self.actor_joint_vel_slice]  # [B,18]
+        mask = obs[:, self.actor_mask_slice]  # [B,18]
+        node_feat = torch.stack([mask, q, qd], dim=-1)  # [B,18,3]
+        node_mask = (mask > 0.5).float()
+        z = self.morph_gnn(node_feat, node_mask=node_mask)  # [B,D]
         return z
 
     def _compute_z_from_critic_obs(self, obs: torch.Tensor) -> torch.Tensor:
         q = obs[:, self.critic_joint_pos_slice]
         qd = obs[:, self.critic_joint_vel_slice]
-        node_feat = torch.stack([q, qd], dim=-1)  # [B,12,2]
-        z = self.morph_gnn(node_feat)
+        mask = obs[:, self.critic_mask_slice]
+        node_feat = torch.stack([mask, q, qd], dim=-1)
+        node_mask = (mask > 0.5).float()
+        z = self.morph_gnn(node_feat, node_mask=node_mask)
         return z
 
     def _augment_actor_obs(self, obs: torch.Tensor) -> torch.Tensor:
@@ -1100,8 +1116,9 @@ class ActorCriticMultiCritic_GNN(nn.Module):
             self._dbg_once = True
             with torch.no_grad():
                 print("[DEBUG] actor q[0][:6] =", observations[0, self.actor_joint_pos_slice][:6].detach().cpu().tolist())
-                print("[DEBUG] actor q[0][6:] =", observations[0, self.actor_joint_pos_slice][6:].detach().cpu().tolist())
-                print("[DEBUG] actor qd[0][6:] =", observations[0, self.actor_joint_vel_slice][6:].detach().cpu().tolist())
+                print("[DEBUG] actor q[0][6:12] =", observations[0, self.actor_joint_pos_slice][6:12].detach().cpu().tolist())
+                print("[DEBUG] actor q[0][12:18] =", observations[0, self.actor_joint_pos_slice][12:18].detach().cpu().tolist())
+                print("[DEBUG] actor mask[0][:6] =", observations[0, self.actor_mask_slice][:6].detach().cpu().tolist())
 
 
         obs_aug = self._augment_actor_obs(observations)
@@ -1128,14 +1145,14 @@ class ActorCriticMultiCritic_GNN(nn.Module):
 
         if self.use_morph_gnn:
             z = critic_aug[:, -self.morph_embed_dim:]  # [B,D]
-            g = torch.sigmoid(self.gate(z))  # [B,1]
+            g = torch.softmax(self.gate(z), dim=-1)  # [B,3]
         else:
             # fallback: constant mix
-            g = 0.5
+            g = torch.full((critic_aug.shape[0], 3), 1.0 / 3.0, device=critic_aug.device)
 
         v_b = self.critic_biped(critic_aug)
         v_q = self.critic_quad(critic_aug)
-        v = (1.0 - g) * v_b + g * v_q
+        v_h = self.critic_hex(critic_aug)
+        v = g[:, [0]] * v_b + g[:, [1]] * v_q + g[:, [2]] * v_h
         return v
         
-
