@@ -7,9 +7,14 @@ from isaaclab.envs import ManagerBasedEnv
 import isaaclab.utils.math as math_utils
 
 
-def sample_env_type(env: ManagerBasedEnv, env_ids: torch.Tensor, ratio_quad: float = 0.5) -> None:
+def sample_env_type(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    ratio_quad: float = 0.33,
+    ratio_hex: float = 0.33,
+) -> None:
     """Randomly assign env_type per env on reset.
-    env.env_type: LongTensor [num_envs], 0=biped, 1=quad
+    env.env_type: LongTensor [num_envs], 0=biped, 1=quad, 2=hexapod
     """
     device = env.device
     num = env_ids.numel()
@@ -23,17 +28,29 @@ def sample_env_type(env: ManagerBasedEnv, env_ids: torch.Tensor, ratio_quad: flo
     # rnd = torch.rand(num, device=device)
     # env.env_type[env_ids] = (rnd < ratio_quad).long()
 
-    # fixed-count assignment: exactly k envs are quad
-    k = int(round(num * ratio_quad))  # ratio_quad=0.5 -> exactly half (up to rounding)
+    # fixed-count assignment: exactly k envs are quad/hex
+    k_quad = int(round(num * ratio_quad))
+    k_hex = int(round(num * ratio_hex))
     perm = torch.randperm(num, device=device)
 
     env.env_type[env_ids] = 0  # all biped first
-    env.env_type[env_ids[perm[:k]]] = 1  # pick k as quad
+    env.env_type[env_ids[perm[:k_quad]]] = 1  # pick k as quad
+    if k_hex > 0:
+        hex_start = k_quad
+        hex_end = min(k_quad + k_hex, num)
+        env.env_type[env_ids[perm[hex_start:hex_end]]] = 2  # pick k as hexapod
 
     if not hasattr(env, "_dbg_env_type_once"):
         env._dbg_env_type_once = True
         u, c = torch.unique(env.env_type, return_counts=True)
-        print("[DEBUG sample_env_type] unique:", dict(zip(u.tolist(), c.tolist())), "ratio_quad=", ratio_quad)
+        print(
+            "[DEBUG sample_env_type] unique:",
+            dict(zip(u.tolist(), c.tolist())),
+            "ratio_quad=",
+            ratio_quad,
+            "ratio_hex=",
+            ratio_hex,
+        )
 
 
 
@@ -42,30 +59,43 @@ def hide_inactive_robot(
     env_ids: torch.Tensor,
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
-    hidden_pos=(0.0, 0.0, -100.0),
+    hex_cfg: SceneEntityCfg,
+    hidden_pos1=(1.0, 0.0, -100.0),
+    hidden_pos2=(-1.0, 0.0, -100.0),
 ) -> None:
     """Move inactive robot far away (underground) to avoid contact interference."""
     if not hasattr(env, "env_type"):
         raise RuntimeError("env.env_type not found. Call sample_env_type first.")
 
     device = env.device
-    hidden_pos_t = torch.tensor(hidden_pos, device=device).view(1, 3)
+    hidden_pos_t1 = torch.tensor(hidden_pos1, device=device).view(1, 3)
+    hidden_pos_t2 = torch.tensor(hidden_pos2, device=device).view(1, 3)
 
     biped: Articulation = env.scene[biped_cfg.name]
     quad: Articulation = env.scene[quad_cfg.name]
+    hexa: Articulation = env.scene[hex_cfg.name]
 
-    # which envs are biped-active or quad-active?
+    # which envs are biped/quad/hex active?
     is_quad = env.env_type[env_ids] == 1
-    quad_ids = env_ids[is_quad]          # envs where quad is active
-    biped_ids = env_ids[~is_quad]        # envs where biped is active
+    is_hex = env.env_type[env_ids] == 2
+    quad_ids = env_ids[is_quad]
+    hex_ids = env_ids[is_hex]
+    biped_ids = env_ids[~(is_quad | is_hex)]
 
-    # inactive in quad envs: biped should be hidden
+    # inactive in quad envs: biped/hex should be hidden
     if quad_ids.numel() > 0:
-        _set_root_to_hidden(biped, quad_ids, hidden_pos_t)
+        _set_root_to_hidden(biped, quad_ids, hidden_pos_t1)
+        _set_root_to_hidden(hexa, quad_ids, hidden_pos_t2)
 
-    # inactive in biped envs: quad should be hidden
+    # inactive in biped envs: quad/hex should be hidden
     if biped_ids.numel() > 0:
-        _set_root_to_hidden(quad, biped_ids, hidden_pos_t)
+        _set_root_to_hidden(quad, biped_ids, hidden_pos_t1)
+        _set_root_to_hidden(hexa, biped_ids, hidden_pos_t2)
+
+    # inactive in hex envs: biped/quad should be hidden
+    if hex_ids.numel() > 0:
+        _set_root_to_hidden(biped, hex_ids, hidden_pos_t1)
+        _set_root_to_hidden(quad, hex_ids, hidden_pos_t2)
 
 
 def _set_root_to_hidden(art: Articulation, env_ids: torch.Tensor, hidden_pos_t: torch.Tensor) -> None:
@@ -117,6 +147,7 @@ def reset_active_joints_by_offset(
     env_ids: torch.Tensor,
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
     position_range=(-0.15, 0.15),
     velocity_range=(-0.10, 0.10),
 ) -> None:
@@ -131,15 +162,19 @@ def reset_active_joints_by_offset(
 
     biped: Articulation = env.scene[biped_cfg.name]
     quad: Articulation = env.scene[quad_cfg.name]
+    hexa: Articulation = env.scene[hex_cfg.name]
 
     # resolve joint ids in the order you pass in
     biped_joint_ids = biped.find_joints(biped_cfg.joint_names, preserve_order=True)[0]
     quad_joint_ids = quad.find_joints(quad_cfg.joint_names, preserve_order=True)[0]
+    hex_joint_ids = hexa.find_joints(hex_cfg.joint_names, preserve_order=True)[0]
 
     # split envs
     is_quad = env.env_type[env_ids] == 1
+    is_hex = env.env_type[env_ids] == 2
     quad_ids = env_ids[is_quad]
-    biped_ids = env_ids[~is_quad]
+    hex_ids = env_ids[is_hex]
+    biped_ids = env_ids[~(is_quad | is_hex)]
 
     def _reset(art: Articulation, joint_ids, ids: torch.Tensor, which: str):
         if ids.numel() == 0:
@@ -169,18 +204,23 @@ def reset_active_joints_by_offset(
             if (not hasattr(env, "action_default_biped")) or (env.action_default_biped is None):
                 env.action_default_biped = torch.zeros((env.num_envs, len(joint_ids)), device=device, dtype=torch.float32)
             env.action_default_biped[ids] = q
-        else:  # "quad"
+        elif which == "quad":
             if (not hasattr(env, "action_default_quad")) or (env.action_default_quad is None):
                 env.action_default_quad = torch.zeros((env.num_envs, len(joint_ids)), device=device, dtype=torch.float32)
             env.action_default_quad[ids] = q
+        else:  # "hex"
+            if (not hasattr(env, "action_default_hex")) or (env.action_default_hex is None):
+                env.action_default_hex = torch.zeros((env.num_envs, len(joint_ids)), device=device, dtype=torch.float32)
+            env.action_default_hex[ids] = q
 
     _reset(biped, biped_joint_ids, biped_ids, "biped")
     _reset(quad,  quad_joint_ids,  quad_ids,  "quad")
+    _reset(hexa,  hex_joint_ids,   hex_ids,   "hex")
 
 
 
 
-def compute_act_mask(env: ManagerBasedEnv, env_ids: torch.Tensor, action_dim: int = 12):
+def compute_act_mask(env: ManagerBasedEnv, env_ids: torch.Tensor, action_dim: int = 18):
     device = env.device
     if not hasattr(env, "act_mask") or env.act_mask is None:
         env.act_mask = torch.ones((env.num_envs, action_dim), device=device, dtype=torch.float32)
@@ -188,18 +228,26 @@ def compute_act_mask(env: ManagerBasedEnv, env_ids: torch.Tensor, action_dim: in
     # 默认全 0，再按类型填
     env.act_mask[env_ids] = 0.0
 
-    # 0=biped, 1=quad
+    # 0=biped, 1=quad, 2=hex
     biped_ids = env_ids[env.env_type[env_ids] == 0]
     quad_ids  = env_ids[env.env_type[env_ids] == 1]
+    hex_ids  = env_ids[env.env_type[env_ids] == 2]
 
     env.act_mask[biped_ids, :6] = 1.0
     env.act_mask[quad_ids, :12] = 1.0
+    env.act_mask[hex_ids, :18] = 1.0
     if not hasattr(env, "_dbg_mask_once"):
         env._dbg_mask_once = True
         m = env.act_mask
         et = env.env_type
-        print("[DEBUG mask] biped mask mean:", m[et==0].float().mean().item(),
-            "quad mask mean:", m[et==1].float().mean().item())
+        print(
+            "[DEBUG mask] biped mask mean:",
+            m[et == 0].float().mean().item(),
+            "quad mask mean:",
+            m[et == 1].float().mean().item(),
+            "hex mask mean:",
+            m[et == 2].float().mean().item(),
+        )
         print("[DEBUG mask] first biped mask row:", m[et==0][0].int().tolist() if (et==0).any() else None)
 
 
@@ -208,6 +256,7 @@ def cache_action_default(
     env_ids: torch.Tensor,
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
 ) -> None:
     """Cache per-env action baseline (joint positions) onto env.
 
@@ -220,24 +269,31 @@ def cache_action_default(
 
     biped: Articulation = env.scene[biped_cfg.name]
     quad: Articulation = env.scene[quad_cfg.name]
+    hexa: Articulation = env.scene[hex_cfg.name]
 
     # ✅ MUST be resolved by manager: biped_cfg.joint_ids / quad_cfg.joint_ids
     if not hasattr(biped_cfg, "joint_ids") or biped_cfg.joint_ids is None:
         raise RuntimeError("biped_cfg.joint_ids is not resolved. Make sure SceneEntityCfg has joint_names and preserve_order=True.")
     if not hasattr(quad_cfg, "joint_ids") or quad_cfg.joint_ids is None:
         raise RuntimeError("quad_cfg.joint_ids is not resolved. Make sure SceneEntityCfg has joint_names and preserve_order=True.")
+    if not hasattr(hex_cfg, "joint_ids") or hex_cfg.joint_ids is None:
+        raise RuntimeError("hex_cfg.joint_ids is not resolved. Make sure SceneEntityCfg has joint_names and preserve_order=True.")
 
     biped_joint_ids = biped_cfg.joint_ids
     quad_joint_ids  = quad_cfg.joint_ids
+    hex_joint_ids  = hex_cfg.joint_ids
 
     # lazy allocate
     if (not hasattr(env, "action_default_biped")) or (env.action_default_biped is None):
         env.action_default_biped = torch.zeros((env.num_envs, len(biped_joint_ids)), device=device, dtype=torch.float32)
     if (not hasattr(env, "action_default_quad")) or (env.action_default_quad is None):
         env.action_default_quad  = torch.zeros((env.num_envs, len(quad_joint_ids)),  device=device, dtype=torch.float32)
+    if (not hasattr(env, "action_default_hex")) or (env.action_default_hex is None):
+        env.action_default_hex  = torch.zeros((env.num_envs, len(hex_joint_ids)),  device=device, dtype=torch.float32)
 
     env.action_default_biped[env_ids] = biped.data.joint_pos[env_ids][:, biped_joint_ids]
     env.action_default_quad[env_ids]  = quad.data.joint_pos[env_ids][:, quad_joint_ids]
+    env.action_default_hex[env_ids]  = hexa.data.joint_pos[env_ids][:, hex_joint_ids]
 
     
 def reset_low_base_counter(env, env_ids: torch.Tensor) -> None:
@@ -285,15 +341,17 @@ def reset_root_state_uniform_multi(
     velocity_range: dict[str, tuple[float, float]],
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
 ):
-    """Reset ONLY the active robot (biped or quad) root state for the given env_ids."""
+    """Reset ONLY the active robot (biped/quad/hex) root state for the given env_ids."""
     if not hasattr(env, "env_type"):
         raise RuntimeError("env.env_type not found. Call sample_env_type first.")
 
-    device = env.device
     is_quad = env.env_type[env_ids] == 1
+    is_hex = env.env_type[env_ids] == 2
     quad_ids = env_ids[is_quad]
-    biped_ids = env_ids[~is_quad]
+    hex_ids = env_ids[is_hex]
+    biped_ids = env_ids[~(is_quad | is_hex)]
 
     if biped_ids.numel() > 0:
         _reset_root_state_uniform_one(env, biped_ids, pose_range, velocity_range, biped_cfg)
@@ -301,6 +359,8 @@ def reset_root_state_uniform_multi(
     if quad_ids.numel() > 0:
         _reset_root_state_uniform_one(env, quad_ids, pose_range, velocity_range, quad_cfg)
 
+    if hex_ids.numel() > 0:
+        _reset_root_state_uniform_one(env, hex_ids, pose_range, velocity_range, hex_cfg)
 
 
 def _reset_joints_by_offset_set_one(
@@ -341,14 +401,17 @@ def reset_joints_by_offset_set_multi(
     velocity_range: tuple[float, float],
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
 ):
-    """Reset ONLY the active robot joints (biped or quad) for the given env_ids."""
+    """Reset ONLY the active robot joints (biped/quad/hex) for the given env_ids."""
     if not hasattr(env, "env_type"):
         raise RuntimeError("env.env_type not found. Call sample_env_type first.")
 
     is_quad = env.env_type[env_ids] == 1
+    is_hex = env.env_type[env_ids] == 2
     quad_ids = env_ids[is_quad]
-    biped_ids = env_ids[~is_quad]
+    hex_ids = env_ids[is_hex]
+    biped_ids = env_ids[~(is_quad | is_hex)]
 
     if biped_ids.numel() > 0:
         _reset_joints_by_offset_set_one(env, biped_ids, position_range, velocity_range, biped_cfg)
@@ -356,5 +419,5 @@ def reset_joints_by_offset_set_multi(
     if quad_ids.numel() > 0:
         _reset_joints_by_offset_set_one(env, quad_ids, position_range, velocity_range, quad_cfg)
 
-
-
+    if hex_ids.numel() > 0:
+        _reset_joints_by_offset_set_one(env, hex_ids, position_range, velocity_range, hex_cfg)

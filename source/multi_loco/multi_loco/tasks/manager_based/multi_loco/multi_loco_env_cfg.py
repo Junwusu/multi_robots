@@ -48,7 +48,7 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
     sub_terrains={
         "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1),
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=0.1, noise_range=(0.01, 0.10), noise_step=0.01, border_width=0.25
+            proportion=0.1, noise_range=(0.01, 0.07), noise_step=0.01, border_width=0.25
         ),
         "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
             proportion=0.1, slope_range=(0.0, 0.3), platform_width=2.0, border_width=0.25
@@ -61,7 +61,7 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
         # ),
         "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
             proportion=0.1,
-            step_height_range=(0.01, 0.08),
+            step_height_range=(0.01, 0.07),
             step_width=0.2,
             platform_width=2.0,
             border_width=1.0,
@@ -69,7 +69,7 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
         ),
         "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
             proportion=0.1,
-            step_height_range=(0.01, 0.08),
+            step_height_range=(0.01, 0.07),
             step_width=0.2,
             platform_width=2.0,
             border_width=1.0,
@@ -120,6 +120,15 @@ class MultiLocoSceneCfg(InteractiveSceneCfg):
             joint_pos=BRAVER_QUAD_default_joint_pos,
         ),
     )
+    # 六足
+    hexapod: ArticulationCfg = BRAVER_hexapod_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/BRAVER_HEXAPOD",
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=(0.0, 0.0, 0.38),
+            rot=(1.0, 0.0, 0.0, 0.0),
+            joint_pos=BRAVER_HEXAPOD_default_joint_pos,
+        ),
+    )
     # go1
     # quad: ArticulationCfg = UNITREE_GO1_CFG.replace(prim_path="{ENV_REGEX_NS}/BRAVER_QUAD")
     # lights
@@ -134,6 +143,9 @@ class MultiLocoSceneCfg(InteractiveSceneCfg):
     quad_contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/BRAVER_QUAD/.*", history_length=10, track_air_time=True, update_period=0.0,
     )
+    hexapod_contact_forces = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/BRAVER_HEXAPOD/.*", history_length=10, track_air_time=True, update_period=0.0,
+    )
 
 ##
 # MDP settings
@@ -146,6 +158,7 @@ class CommandsCfg:
         debug_vis=True,
         biped_asset_name="biped",
         quad_asset_name="quad",
+        hexapod_asset_name="hexapod",
         heading_command=True,
         heading_control_stiffness=0.5,
         rel_standing_envs=0.02,
@@ -185,6 +198,11 @@ class ActionsCfg:
             joint_names=BRAVER_QUAD_JOINT_NAMES,
             preserve_order=True,
         ),
+        hex_cfg=SceneEntityCfg(
+            "hexapod",
+            joint_names=BRAVER_HEXAPOD_JOINT_NAMES,
+            preserve_order=True,
+        ),
         scale=0.25,
         use_default_offset=True,
         preserve_order=True,
@@ -205,6 +223,7 @@ class ObservationsCfg:
             params={
                 "biped_cfg": SceneEntityCfg("biped"),
                 "quad_cfg": SceneEntityCfg("quad"),
+                "hex_cfg": SceneEntityCfg("hexapod"),
             },
             noise=GaussianNoise(mean=0.0, std=0.05),
             clip=(-100.0, 100.0),
@@ -216,6 +235,7 @@ class ObservationsCfg:
             params={
                 "biped_cfg": SceneEntityCfg("biped"),
                 "quad_cfg": SceneEntityCfg("quad"),
+                "hex_cfg": SceneEntityCfg("hexapod"),
             },
             noise=GaussianNoise(mean=0.0, std=0.025),
             clip=(-100.0, 100.0),
@@ -224,10 +244,11 @@ class ObservationsCfg:
 
         # active robot joint measurements -> unified to 12
         joint_pos = ObsTerm(
-            func=mdp.active_joint_pos_rel_12,
+            func=mdp.active_joint_pos_rel_18,
             params={
                 "biped_cfg": SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES, preserve_order=True),
                 "quad_cfg":  SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES,  preserve_order=True),
+                "hex_cfg":  SceneEntityCfg("hexapod",  joint_names=BRAVER_HEXAPOD_JOINT_NAMES,  preserve_order=True),
             },
             noise=GaussianNoise(mean=0.0, std=0.01),
             clip=(-100.0, 100.0),
@@ -235,10 +256,11 @@ class ObservationsCfg:
         )
 
         joint_vel = ObsTerm(
-            func=mdp.active_joint_vel_12,
+            func=mdp.active_joint_vel_18,
             params={
                 "biped_cfg": SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES, preserve_order=True),
                 "quad_cfg":  SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES,  preserve_order=True),
+                "hex_cfg":  SceneEntityCfg("hexapod",  joint_names=BRAVER_HEXAPOD_JOINT_NAMES,  preserve_order=True),
             },
             noise=GaussianNoise(mean=0.0, std=0.01),
             clip=(-100.0, 100.0),
@@ -253,6 +275,7 @@ class ObservationsCfg:
         gait_command = ObsTerm(func=mdp.get_gait_command, params={"command_name": "gait_command"})
 
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
+        # act_mask = ObsTerm(func=mdp.action_mask_18)
 
         # robot_type = ObsTerm(func=mdp.robot_type_onehot)
         # act_mask = ObsTerm(func=mdp.action_mask_12)
@@ -314,24 +337,36 @@ class ObservationsCfg:
     @configclass
     class CriticCfg(ObsGroup):
         # active robot base measurements
-        base_lin_vel = ObsTerm(func=mdp.active_base_lin_vel, params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad")}, scale=2.0)
-        base_ang_vel = ObsTerm(func=mdp.active_base_ang_vel, params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad")}, scale=0.25)
-        proj_gravity = ObsTerm(func=mdp.active_projected_gravity, params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad")})
-
+        base_lin_vel = ObsTerm(
+            func=mdp.active_base_lin_vel,
+            params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad"), "hex_cfg": SceneEntityCfg("hexapod")},
+            scale=2.0,
+        )
+        base_ang_vel = ObsTerm(
+            func=mdp.active_base_ang_vel, 
+            params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad"), "hex_cfg": SceneEntityCfg("hexapod")}, 
+            scale=0.25
+        )
+        proj_gravity = ObsTerm(
+            func=mdp.active_projected_gravity, 
+            params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad"), "hex_cfg": SceneEntityCfg("hexapod")}
+        )
         # active robot joint measurements -> 12
         joint_pos = ObsTerm(
-            func=mdp.active_joint_pos_rel_12,
+            func=mdp.active_joint_pos_rel_18,
             params={
                 "biped_cfg": SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES, preserve_order=True),
                 "quad_cfg":  SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES,  preserve_order=True),
+                "hex_cfg":  SceneEntityCfg("hexapod",  joint_names=BRAVER_HEXAPOD_JOINT_NAMES,  preserve_order=True),
             },
             scale=1.0,
         )
         joint_vel = ObsTerm(
-            func=mdp.active_joint_vel_12,
+            func=mdp.active_joint_vel_18,
             params={
                 "biped_cfg": SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES, preserve_order=True),
                 "quad_cfg":  SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES,  preserve_order=True),
+                "hex_cfg":  SceneEntityCfg("hexapod",  joint_names=BRAVER_HEXAPOD_JOINT_NAMES,  preserve_order=True),
             },
             scale=0.05,
         )
@@ -341,6 +376,7 @@ class ObservationsCfg:
         gait_phase = ObsTerm(func=mdp.get_gait_phase)
         gait_command = ObsTerm(func=mdp.get_gait_command, params={"command_name": "gait_command"})
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
+        # act_mask = ObsTerm(func=mdp.action_mask_18)
 
         # robot_type = ObsTerm(func=mdp.robot_type_onehot)
         # act_mask = ObsTerm(func=mdp.action_mask_12)
@@ -368,6 +404,7 @@ class EventCfg:
         params={
             "biped_cfg": SceneEntityCfg("biped"),
             "quad_cfg": SceneEntityCfg("quad"),
+            "hex_cfg": SceneEntityCfg("hexapod"),
             "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-math.pi, math.pi)},
             "velocity_range": {"x": (-0.2, 0.2), "y": (-0.2, 0.2), "yaw": (-0.2, 0.2)},
         },
@@ -381,6 +418,7 @@ class EventCfg:
         params={
             "biped_cfg": BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
             "quad_cfg": BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            "hex_cfg": BRAVER_HEXAPOD_PRESERVE_JOINT_ORDER_ASSET_CFG,
             "position_range": (-0.02, 0.02),
             "velocity_range": (0.0, 0.0),
         },
@@ -394,7 +432,9 @@ class EventCfg:
         params={
             "biped_cfg": SceneEntityCfg("biped"),
             "quad_cfg": SceneEntityCfg("quad"),
-            "hidden_pos": (0.0, 0.0, -100.0),
+            "hex_cfg": SceneEntityCfg("hexapod"),
+            "hidden_pos1": (1.0, 0.0, -100.0),
+            "hidden_pos2": (-1.0, 0.0, -100.0),
         },
         is_global_time=False,
         min_step_count_between_reset=0,
@@ -411,6 +451,7 @@ class RewardsCfg:
         params={
             "w_biped": 1.0,
             "w_quad": 0.0,
+            "w_hex": 0.0,
         },
     )
     #双足四足
@@ -421,8 +462,10 @@ class RewardsCfg:
             "command_name": "base_velocity",
             "std_biped": 0.25,
             "std_quad": 0.25,
+            "std_hex": 0.25,
             "w_biped": 8.0,
             "w_quad": 3.0,
+            "w_hex": 5.0,
         },
     )
     track_ang_vel_z_exp = RewTerm(
@@ -432,8 +475,10 @@ class RewardsCfg:
             "command_name": "base_velocity",
             "std_biped": 0.25,
             "std_quad": 0.25,
+            "std_hex": 0.25,
             "w_biped": 1.5,
             "w_quad": 1.5,
+            "w_hex": 3.0,
         },
     )
     pen_lin_vel_z = RewTerm(
@@ -442,6 +487,7 @@ class RewardsCfg:
         params={
             "w_biped": -2.0,    
             "w_quad": -2.0,
+            "w_hex": -2.0,
         },
     )  
     pen_ang_vel_xy = RewTerm(
@@ -450,6 +496,7 @@ class RewardsCfg:
         params={
             "w_biped": -0.5,    
             "w_quad": -0.05,
+            "w_hex": -0.05,
         },
     ) 
     #四足
@@ -459,8 +506,10 @@ class RewardsCfg:
         params=dict(
             w_biped=0,
             w_quad=-0.001,
+            w_hex=-0.001,
             biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
             quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            hex_cfg=BRAVER_HEXAPOD_PRESERVE_JOINT_ORDER_ASSET_CFG,
         ),
     )
     #四足
@@ -470,8 +519,10 @@ class RewardsCfg:
         params=dict(
             w_biped=0,
             w_quad=-2.5e-7,
+            w_hex=-2.5e-7,
             biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
             quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            hex_cfg=BRAVER_HEXAPOD_PRESERVE_JOINT_ORDER_ASSET_CFG,
         ),
     )
     #四足
@@ -481,8 +532,10 @@ class RewardsCfg:
         params=dict(
             w_biped=-0.00008,
             w_quad=-2e-4,
+            w_hex=-2e-4,
             biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
             quad_cfg=BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            hex_cfg=BRAVER_HEXAPOD_PRESERVE_JOINT_ORDER_ASSET_CFG,
         ),
     )
     #双足四足
@@ -492,6 +545,7 @@ class RewardsCfg:
         params={
             "w_biped": -0.01 ,    
             "w_quad": -0.01,
+            "w_hex": -0.01,
         },
     )
     joint_pos_limits = RewTerm(
@@ -500,8 +554,10 @@ class RewardsCfg:
         params={
             "w_biped": -2.0,    
             "w_quad": -1.0,
+            "w_hex": -1.0,
             "biped_cfg": BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
             "quad_cfg": BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            "hex_cfg": BRAVER_HEXAPOD_PRESERVE_JOINT_ORDER_ASSET_CFG,
         },
     )
     #四足
@@ -511,8 +567,10 @@ class RewardsCfg:
         params=dict(
             w_biped = 0,
             w_quad = -2e-5,
+            w_hex = -2e-5,
             biped_cfg = BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
             quad_cfg = BRAVER_QUAD_PRESERVE_JOINT_ORDER_ASSET_CFG,
+            hex_cfg = BRAVER_HEXAPOD_PRESERVE_JOINT_ORDER_ASSET_CFG,
         ),
     )
     #双足四足
@@ -522,6 +580,7 @@ class RewardsCfg:
         params={
             "w_biped":  -20.0,    
             "w_quad":  -10.0,
+            "w_hex":  -10.0,
         },
     )
 
@@ -533,10 +592,13 @@ class RewardsCfg:
             command_name="base_velocity",
             threshold_biped=0.15,
             threshold_quad=0.15,
+            threshold_hex=0.15,
             w_biped=0.0,
             w_quad=1.0,
+            w_hex=1.0,
             biped_sensor_cfg=SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_FOOT_NAMES),
             quad_sensor_cfg=SceneEntityCfg("quad_contact_forces",  body_names=BRAVER_QUAD_FOOT_NAMES),
+            hex_sensor_cfg=SceneEntityCfg("hexapod_contact_forces",  body_names=BRAVER_HEXAPOD_FOOT_NAMES),
         ),
     ) 
 
@@ -548,8 +610,10 @@ class RewardsCfg:
             "threshold": 1.0,
             "w_biped": -10.0,    
             "w_quad": -1.0,
+            "w_hex": -1.0,
             "biped_sensor_cfg" :SceneEntityCfg("biped_contact_forces", body_names=BRAVER_biped_UNDESIRED_CONTACTS_NAMES),
             "quad_sensor_cfg": SceneEntityCfg("quad_contact_forces", body_names=BRAVER_QUAD_UNDESIRED_CONTACTS_NAMES),
+            "hex_sensor_cfg": SceneEntityCfg("hexapod_contact_forces", body_names=BRAVER_HEXAPOD_UNDESIRED_CONTACTS_NAMES),
         },
     )   
     #双足
@@ -559,8 +623,10 @@ class RewardsCfg:
         params={
             "target_height_biped": 0.37,
             "target_height_quad": 0.35,
+            "target_height_hex": 0.35,
             "w_biped": -10.0,
             "w_quad": 0.0,
+            "w_hex": 0.0,
         },
     )
     # action_smoothness = RewTerm(
@@ -571,8 +637,9 @@ class RewardsCfg:
         func=mdp.feet_distance_type_weighted,
         weight=1.0,
         params={
-            "w_biped": -10.0,    
+            "w_biped": -20.0,    
             "w_quad": -0.0,
+            "w_hex": -0.0,
         },
     ) 
     feet_regulation = RewTerm(
@@ -581,10 +648,13 @@ class RewardsCfg:
         params={
             "foot_radius_biped": 0.03,
             "foot_radius_quad": 0.03,
+            "foot_radius_hex": 0.03,
             "base_height_target_biped": 0.37,
             "base_height_target_quad": 0.35,
+            "base_height_target_hex": 0.35,
             "w_biped": -1.0,    
             "w_quad": -0.0,
+            "w_hex": -0.0,
         },
     )  
     foot_landing_vel = RewTerm(
@@ -593,10 +663,13 @@ class RewardsCfg:
         params={ 
             "about_landing_threshold_biped": 0.05,
             "about_landing_threshold_quad": 0.05,
+            "about_landing_threshold_hex": 0.05,
             "foot_radius_biped": 0.03,
             "foot_radius_quad": 0.03,
+            "foot_radius_hex": 0.03,
             "w_biped": -0.2,    
             "w_quad": -0.0,
+            "w_hex": -0.0,
         },
     )    
     feet_velocity = RewTerm(
@@ -605,6 +678,7 @@ class RewardsCfg:
         params={ 
             "w_biped": -0.8,    
             "w_quad": -0.0,
+            "w_hex": -0.0,
         },
     )  
     feet_clearance = RewTerm(
@@ -613,12 +687,16 @@ class RewardsCfg:
         params={ 
             "target_height_biped": 0.10,
             "target_height_quad": 0.10,
+            "target_height_hex": 0.10,
             "std_biped": 0.05,
             "std_quad": 0.05,
+            "std_hex": 0.05,
             "tanh_mult_biped": 2.0,
             "tanh_mult_quad": 2.0,
+            "tanh_mult_hex": 2.0,
             "w_biped": 2.0,   
-            "w_quad": 0.0,    
+            "w_quad": 0.0,   
+            "w_hex": 0.0, 
         },
     ) 
     #双足四足
@@ -637,8 +715,15 @@ class RewardsCfg:
             period_quad=0.4,
             offset_quad=[0.0, 0.5, 0.5, 0.0], # FL,FR,RL,RR
             threshold_quad=0.5,
-            w_quad=1.0,
+            w_quad=2.0,
             quad_sensor_cfg=SceneEntityCfg("quad_contact_forces", body_names=BRAVER_QUAD_FOOT_NAMES),
+
+            # hex (示例 triplet gait)
+            period_hex=0.4,
+            offset_hex=[0.0, 0.5, 0.5, 0.0, 0.0, 0.5],
+            threshold_hex=0.5,
+            w_hex=2.0,
+            hex_sensor_cfg=SceneEntityCfg("hexapod_contact_forces", body_names=BRAVER_HEXAPOD_FOOT_NAMES),
         ),
     )   
 
@@ -648,8 +733,10 @@ class RewardsCfg:
         params=dict(
             w_biped=0.0,
             w_quad=-0.5,
+            w_hex=-0.5,
             biped_cfg=SceneEntityCfg("biped", joint_names=".*_abad_joint"),
             quad_cfg=SceneEntityCfg("quad",  joint_names=".*_abad_joint"),
+            hex_cfg=SceneEntityCfg("hexapod",  joint_names=".*_abad_joint"),
         ),
     )
 
@@ -663,6 +750,7 @@ class TerminationsCfg:
         params={
             "biped_sensor_cfg": SceneEntityCfg("biped_contact_forces",body_names=BRAVER_biped_BASE_NAME,),
             "quad_sensor_cfg": SceneEntityCfg("quad_contact_forces",body_names=BRAVER_QUAD_BASE_NAME,),
+            "hex_sensor_cfg": SceneEntityCfg("hexapod_contact_forces",body_names=BRAVER_HEXAPOD_BASE_NAME,),
         },
     )
     bad_orientation = DoneTerm(
@@ -670,8 +758,10 @@ class TerminationsCfg:
         params=dict(
             limit_angle_biped=0.8,   # 你可以给双足更严格/更宽松
             limit_angle_quad=0.8,
+            limit_angle_hex=0.8,
             biped_cfg=SceneEntityCfg("biped"),
             quad_cfg=SceneEntityCfg("quad"),
+            hex_cfg=SceneEntityCfg("hexapod"),
         ),
     )
     # bad_posture = DoneTerm(
@@ -679,6 +769,7 @@ class TerminationsCfg:
     #     params={
     #         "biped_cfg": SceneEntityCfg("biped"),   
     #         "quad_cfg": SceneEntityCfg("quad"), 
+    #         "hex_cfg": SceneEntityCfg("hexapod"),
     #     }
     # )
     
@@ -697,7 +788,7 @@ class CurriculumCfg:
 @configclass
 class MultiLocoEnvCfg(ManagerBasedRLEnvCfg):
     # Scene settings
-    scene: MultiLocoSceneCfg = MultiLocoSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: MultiLocoSceneCfg = MultiLocoSceneCfg(num_envs=3000, env_spacing=4.0)
     # Basic settings
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
@@ -719,7 +810,7 @@ class MultiLocoEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 1 / 500
         self.sim.render_interval = 2 * self.decimation
 
-        self.sim.physx.gpu_max_rigid_patch_count = 262144
+        self.sim.physx.gpu_max_rigid_patch_count = 2**24
 
 @configclass
 class MultiLocoRoughEnvCfg(MultiLocoEnvCfg):
@@ -730,8 +821,10 @@ class MultiLocoRoughEnvCfg(MultiLocoEnvCfg):
         #scene
         self.scene.terrain.max_init_terrain_level = 0
         #rewards
-        # self.rewards.feet_air_time.params["w_quad"] = 0.01
-        self.rewards.flat_orientation.params["w_quad"] = -1.0
+        # self.rewards.feet_air_time.params["w_quad"] = 0.25
+        # self.rewards.feet_air_time.params["w_hex"] = 0.25
+        self.rewards.flat_orientation.params["w_quad"] = -2.5
+        self.rewards.flat_orientation.params["w_hex"] = -2.5
         #curriculum
         # self.curriculum.terrain_levels.func = mdp.terrain_levels_vel_tracking_type_weighted
 
@@ -742,8 +835,10 @@ class MultiLocoFlatEnvCfg(MultiLocoRoughEnvCfg):
 
         super().__post_init__()
         #rewards
-        # self.rewards.feet_air_time.params["w_quad"] = 0.25
-        # self.rewards.flat_orientation.params["w_quad"] = -2.5
+        self.rewards.feet_air_time.params["w_quad"] = 1.0
+        self.rewards.feet_air_time.params["w_hex"] = 1.0
+        self.rewards.flat_orientation.params["w_quad"] = -10.0
+        self.rewards.flat_orientation.params["w_hex"] = -10.0
         #scene
         self.scene.terrain.terrain_type = "plane"
         self.scene.terrain.terrain_generator = None
@@ -757,7 +852,7 @@ class MultiLocoRoughEnvCfg_Play(MultiLocoRoughEnvCfg):
 
         super().__post_init__()
         #scene
-        self.scene.num_envs = 32
+        self.scene.num_envs = 33
         self.scene.env_spacing = 2.5
         # spawn the robot randomly in the grid (instead of their terrain levels)
         self.scene.terrain.max_init_terrain_level = None
@@ -781,7 +876,7 @@ class MultiLocoFlatEnvCfg_Play(MultiLocoFlatEnvCfg):
         super().__post_init__()
 
         # make a smaller scene for play
-        self.scene.num_envs = 32
+        self.scene.num_envs = 33
         self.scene.env_spacing = 2.5
         # disable randomization for play
         self.observations.policy.enable_corruption = False

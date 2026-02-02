@@ -15,15 +15,22 @@ class MultiLocoEnv(ManagerBasedRLEnv):
         if not hasattr(self, "env_type") or self.env_type is None:
             # self.env_type = torch.ones(self.num_envs, dtype=torch.long, device=self.device)
             self.env_type = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-            self.env_type[self.num_envs // 2 :] = 1
+            if self.num_envs >= 3:
+                split = self.num_envs // 3
+                self.env_type[split : 2 * split] = 1
+                self.env_type[2 * split :] = 2
+            else:
+                self.env_type[self.num_envs // 2 :] = 1
 
         if not hasattr(self, "act_mask") or self.act_mask is None:
-            action_dim = 12
+            action_dim = 18
             self.act_mask = torch.zeros((self.num_envs, action_dim), device=self.device, dtype=torch.float32)
             biped_ids = torch.nonzero(self.env_type == 0, as_tuple=False).squeeze(-1)
             quad_ids  = torch.nonzero(self.env_type == 1, as_tuple=False).squeeze(-1)
+            hex_ids  = torch.nonzero(self.env_type == 2, as_tuple=False).squeeze(-1)
             self.act_mask[biped_ids, :6] = 1.0
             self.act_mask[quad_ids, :12] = 1.0
+            self.act_mask[hex_ids, :18] = 1.0
         # if not hasattr(self, "_dbg_mask_once"):
         #     self._dbg_mask_once = True
         #     print("env_type_dist:", torch.unique(self.env_type, return_counts=True))

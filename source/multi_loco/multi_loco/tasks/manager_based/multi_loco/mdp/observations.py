@@ -12,54 +12,64 @@ def _active_ids(env: MultiLocoEnv):
     env_ids = torch.arange(env.num_envs, device=env.device)
     biped_ids = env_ids[env.env_type == 0]
     quad_ids  = env_ids[env.env_type == 1]
-    return biped_ids, quad_ids
+    hex_ids  = env_ids[env.env_type == 2]
+    return biped_ids, quad_ids, hex_ids
 
-def _active_copy_3(env: MultiLocoEnv, biped_tensor, quad_tensor):
-    """Helper: make (N,3) output by picking per-env from biped/quad tensors."""
+def _active_copy_3(env: MultiLocoEnv, biped_tensor, quad_tensor, hex_tensor):
+    """Helper: make (N,3) output by picking per-env from biped/quad/hex tensors."""
     out = torch.zeros((env.num_envs, 3), device=env.device, dtype=biped_tensor.dtype)
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
     if biped_ids.numel() > 0:
         out[biped_ids] = biped_tensor[biped_ids]
     if quad_ids.numel() > 0:
         out[quad_ids] = quad_tensor[quad_ids]
+    if hex_ids.numel() > 0:
+        out[hex_ids] = hex_tensor[hex_ids]
     return out
 
 def active_base_ang_vel(
     env: MultiLocoEnv,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg: SceneEntityCfg  = SceneEntityCfg("quad"),
+    hex_cfg: SceneEntityCfg  = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """(N,3) root angular velocity in base frame from the active robot."""
     biped = env.scene[biped_cfg.name]
     quad  = env.scene[quad_cfg.name]
-    return _active_copy_3(env, biped.data.root_ang_vel_b, quad.data.root_ang_vel_b)
+    hexa = env.scene[hex_cfg.name]
+    return _active_copy_3(env, biped.data.root_ang_vel_b, quad.data.root_ang_vel_b, hexa.data.root_ang_vel_b)
 
 def active_projected_gravity(
     env: MultiLocoEnv,
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg: SceneEntityCfg  = SceneEntityCfg("quad"),
+    hex_cfg: SceneEntityCfg  = SceneEntityCfg("hexapod"),
 ) -> torch.Tensor:
     """(N,3) projected gravity in base frame from the active robot."""
     biped = env.scene[biped_cfg.name]
     quad  = env.scene[quad_cfg.name]
-    return _active_copy_3(env, biped.data.projected_gravity_b, quad.data.projected_gravity_b)
+    hexa = env.scene[hex_cfg.name]
+    return _active_copy_3(env, biped.data.projected_gravity_b, quad.data.projected_gravity_b, hexa.data.projected_gravity_b)
 
-def active_joint_pos_rel_12(
+def active_joint_pos_rel_18(
     env: MultiLocoEnv,
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """(N,12) joint pos rel to default. biped fills first 6, quad fills first 12."""
+    """(N,18) joint pos rel to default. biped fills first 6, quad fills first 12, hex fills first 18."""
     device = env.device
-    out = torch.zeros((env.num_envs, 12), device=device)
+    out = torch.zeros((env.num_envs, 18), device=device)
 
     biped: Articulation = env.scene[biped_cfg.name]
     quad:  Articulation = env.scene[quad_cfg.name]
+    hexa:  Articulation = env.scene[hex_cfg.name]
 
     bj = biped_cfg.joint_ids  # len 6
     qj = quad_cfg.joint_ids   # len 12
+    hj = hex_cfg.joint_ids    # len 18
 
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
 
     if biped_ids.numel() > 0:
         rel = biped.data.joint_pos[biped_ids][:, bj] - biped.data.default_joint_pos[biped_ids][:, bj]
@@ -69,29 +79,38 @@ def active_joint_pos_rel_12(
         rel = quad.data.joint_pos[quad_ids][:, qj] - quad.data.default_joint_pos[quad_ids][:, qj]
         out[quad_ids, :len(qj)] = rel
 
+    if hex_ids.numel() > 0:
+        rel = hexa.data.joint_pos[hex_ids][:, hj] - hexa.data.default_joint_pos[hex_ids][:, hj]
+        out[hex_ids, :len(hj)] = rel
+
     return out
 
-def active_joint_vel_12(
+def active_joint_vel_18(
     env: MultiLocoEnv,
     biped_cfg: SceneEntityCfg,
     quad_cfg: SceneEntityCfg,
+    hex_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """(N,12) joint vel. biped fills first 6, quad fills first 12."""
+    """(N,18) joint vel. biped fills first 6, quad fills first 12, hex fills first 18."""
     device = env.device
-    out = torch.zeros((env.num_envs, 12), device=device)
+    out = torch.zeros((env.num_envs, 18), device=device)
 
     biped: Articulation = env.scene[biped_cfg.name]
     quad:  Articulation = env.scene[quad_cfg.name]
+    hexa:  Articulation = env.scene[hex_cfg.name]
 
     bj = biped_cfg.joint_ids
     qj = quad_cfg.joint_ids
+    hj = hex_cfg.joint_ids
 
-    biped_ids, quad_ids = _active_ids(env)
+    biped_ids, quad_ids, hex_ids = _active_ids(env)
 
     if biped_ids.numel() > 0:
         out[biped_ids, :len(bj)] = biped.data.joint_vel[biped_ids][:, bj]
     if quad_ids.numel() > 0:
         out[quad_ids, :len(qj)] = quad.data.joint_vel[quad_ids][:, qj]
+    if hex_ids.numel() > 0:
+        out[hex_ids, :len(hj)] = hexa.data.joint_vel[hex_ids][:, hj]
 
     return out
 
@@ -144,30 +163,33 @@ def generated_commands(env: MultiLocoEnv, command_name: str) -> torch.Tensor:
     """The generated command from command term in the command manager with the given name."""
     return env.command_manager.get_command(command_name)
 
-def active_base_lin_vel(env, biped_cfg=SceneEntityCfg("biped"), quad_cfg=SceneEntityCfg("quad")):
+def active_base_lin_vel(env, biped_cfg=SceneEntityCfg("biped"), quad_cfg=SceneEntityCfg("quad"), hex_cfg=SceneEntityCfg("hexapod")):
     biped = env.scene[biped_cfg.name]
     quad  = env.scene[quad_cfg.name]
-    return _active_copy_3(env, biped.data.root_lin_vel_b, quad.data.root_lin_vel_b)
+    hexa = env.scene[hex_cfg.name]
+    return _active_copy_3(env, biped.data.root_lin_vel_b, quad.data.root_lin_vel_b, hexa.data.root_lin_vel_b)
 
 
 def robot_type_onehot(env) -> torch.Tensor:
     """
     Returns robot type as one-hot:
-    [1, 0] = biped
-    [0, 1] = quad
-    Shape: (num_envs, 2)
+    [1, 0, 0] = biped
+    [0, 1, 0] = quad
+    [0, 0, 1] = hexapod
+    Shape: (num_envs, 3)
     """
-    # env.env_type: (num_envs,) long, 0 or 1
+    # env.env_type: (num_envs,) long, 0/1/2
     env_type = env.env_type
 
-    onehot = torch.zeros((env.num_envs, 2), device=env.device, dtype=torch.float32)
+    onehot = torch.zeros((env.num_envs, 3), device=env.device, dtype=torch.float32)
     onehot[env_type == 0, 0] = 1.0  # biped
     onehot[env_type == 1, 1] = 1.0  # quad
+    onehot[env_type == 2, 2] = 1.0  # hexapod
     return onehot
 
 
-def action_mask_12(env) -> torch.Tensor:
-    # env.act_mask: [num_envs, 12]
+def action_mask_18(env) -> torch.Tensor:
+    # env.act_mask: [num_envs, 18]
     return env.act_mask
 
 

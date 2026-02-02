@@ -10,24 +10,28 @@ if TYPE_CHECKING:
 
 
 def _active_ids(env):
-    t = env.env_type  # 0=biped, 1=quad（按你工程约定）
+    t = env.env_type  # 0=biped, 1=quad, 2=hex
     biped_ids = torch.nonzero(t == 0, as_tuple=False).squeeze(-1)
     quad_ids  = torch.nonzero(t == 1, as_tuple=False).squeeze(-1)
-    return biped_ids, quad_ids
+    hex_ids  = torch.nonzero(t == 2, as_tuple=False).squeeze(-1)
+    return biped_ids, quad_ids, hex_ids
 
 
 def terrain_levels_vel_type_weighted(
     env,
     env_ids: Sequence[int],
-    # 两种机器人资产名
+    # 三种机器人资产名
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
     # 可选：对两种类型设置不同的“上难度距离阈值系数/下难度系数”
     # 默认保持与你原函数一致
     up_dist_frac_biped: float = 0.5,
     up_dist_frac_quad:  float = 0.5,
+    up_dist_frac_hex:  float = 0.5,
     down_req_frac_biped: float = 0.5,
     down_req_frac_quad:  float = 0.5,
+    down_req_frac_hex:  float = 0.5,
     command_name: str = "base_velocity",
 ) -> torch.Tensor:
     """
@@ -42,12 +46,14 @@ def terrain_levels_vel_type_weighted(
     env_ids_t = torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
 
     # 只在给定 env_ids 里做 type 分组
-    biped_all, quad_all = _active_ids(env)
+    biped_all, quad_all, hex_all = _active_ids(env)
     # mask on env_ids
     is_biped = (env.env_type[env_ids_t] == 0)
     is_quad  = (env.env_type[env_ids_t] == 1)
+    is_hex  = (env.env_type[env_ids_t] == 2)
     biped_ids = env_ids_t[is_biped]
     quad_ids  = env_ids_t[is_quad]
+    hex_ids  = env_ids_t[is_hex]
 
     move_up   = torch.zeros(env_ids_t.shape[0], device=env.device, dtype=torch.bool)
     move_down = torch.zeros_like(move_up)
@@ -87,6 +93,23 @@ def terrain_levels_vel_type_weighted(
         move_up[is_quad] = mu
         move_down[is_quad] = md
 
+    # --- hex 分支 ---
+    if hex_ids.numel() > 0:
+        asset: Articulation = env.scene[hex_cfg.name]
+        distance = torch.norm(
+            asset.data.root_pos_w[hex_ids, :2] - env.scene.env_origins[hex_ids, :2],
+            dim=1,
+        )
+        up_th = terrain.cfg.terrain_generator.size[0] * up_dist_frac_hex
+        mu = distance > up_th
+
+        req = torch.norm(command[hex_ids, :2], dim=1) * env.max_episode_length_s * down_req_frac_hex
+        md = distance < req
+        md = md & (~mu)
+
+        move_up[is_hex] = mu
+        move_down[is_hex] = md
+
     # 用原 API 更新：注意这里传的是 env_ids（全体），以及对应的 move_up/down（同长度）
     terrain.update_env_origins(env_ids_t, move_up, move_down)
 
@@ -95,14 +118,17 @@ def terrain_levels_vel_type_weighted(
 def terrain_levels_vel_tracking_type_weighted(
     env,
     env_ids: Sequence[int],
-    # 两种资产
+    # 三种资产
     biped_cfg: SceneEntityCfg = SceneEntityCfg("biped"),
     quad_cfg:  SceneEntityCfg = SceneEntityCfg("quad"),
+    hex_cfg:  SceneEntityCfg = SceneEntityCfg("hexapod"),
     # 允许 biped/quad 用不同阈值（你也可以都给同一个值）
     level_up_threshold_biped: float = 0.75,
     level_down_threshold_biped: float = 0.5,
     level_up_threshold_quad: float = 0.75,
     level_down_threshold_quad: float = 0.5,
+    level_up_threshold_hex: float = 0.75,
+    level_down_threshold_hex: float = 0.5,
     # 你用到的 reward term 名（保持可配置，避免你改名字后这里崩）
     lin_term_name: str = "track_lin_vel_xy_exp",
     ang_term_name: str = "track_ang_vel_z_exp",
@@ -132,6 +158,7 @@ def terrain_levels_vel_tracking_type_weighted(
     # --- 在 env_ids 内部分 biped/quad ---
     is_biped = (env.env_type[env_ids_t] == 0)
     is_quad  = (env.env_type[env_ids_t] == 1)
+    is_hex  = (env.env_type[env_ids_t] == 2)
 
     move_up   = torch.zeros(env_ids_t.shape[0], device=env.device, dtype=torch.bool)
     move_down = torch.zeros_like(move_up)
@@ -178,12 +205,31 @@ def terrain_levels_vel_tracking_type_weighted(
         move_up[is_quad] = mu
         move_down[is_quad] = md
 
+    # --- hex 分支：用 hex 资产算 distance ---
+    if is_hex.any():
+        h_ids = env_ids_t[is_hex]
+        asset: Articulation = env.scene[hex_cfg.name]
+        dist = torch.norm(asset.data.root_pos_w[h_ids, :2] - env.scene.env_origins[h_ids, :2], dim=1)
+
+        mu = (
+            (dist > terrain.cfg.terrain_generator.size[0] / 2)
+            & (lin_sum[is_hex] > lin_w * level_up_threshold_hex)
+            & (ang_sum[is_hex] > ang_w * level_up_threshold_hex)
+        )
+
+        md = (
+            (lin_sum[is_hex] < lin_w * level_down_threshold_hex)
+            | (ang_sum[is_hex] < ang_w * level_down_threshold_hex)
+        )
+        md = md & (~mu)
+
+        move_up[is_hex] = mu
+        move_down[is_hex] = md
+
     # 更新课程（一次调用）
     terrain.update_env_origins(env_ids_t, move_up, move_down)
 
     return torch.mean(terrain.terrain_levels.float())
-
-
 
 
 

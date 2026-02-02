@@ -143,8 +143,10 @@ class OnPolicyRunner(OnPolicyRunnerBase):
         # Per-type rolling buffers
         self._rewbuffer_biped: Deque[float] = deque(maxlen=100)
         self._rewbuffer_quad: Deque[float] = deque(maxlen=100)
+        self._rewbuffer_hex: Deque[float] = deque(maxlen=100)
         self._lenbuffer_biped: Deque[float] = deque(maxlen=100)
         self._lenbuffer_quad: Deque[float] = deque(maxlen=100)
+        self._lenbuffer_hex: Deque[float] = deque(maxlen=100)
 
     # ---------------- helpers ----------------
     def _resolve_base_env(self):
@@ -173,7 +175,7 @@ class OnPolicyRunner(OnPolicyRunnerBase):
 
     def _get_env_type(self) -> torch.Tensor:
         """Return env_type [num_envs] on self.device, reading it from the underlying env.
-        0=biped, 1=quad. If missing, warn and return a temporary default (DO NOT write back).
+        0=biped, 1=quad, 2=hex. If missing, warn and return a temporary default (DO NOT write back).
         """
         base_env = self._resolve_base_env()
 
@@ -189,12 +191,15 @@ class OnPolicyRunner(OnPolicyRunnerBase):
 
 
 
-    def _split_done_ids_by_type(self, done_env_ids_1d: torch.Tensor, env_type_snapshot: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Split done env ids into (biped_done, quad_done) using a snapshot taken BEFORE env.step()."""
+    def _split_done_ids_by_type(
+        self, done_env_ids_1d: torch.Tensor, env_type_snapshot: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Split done env ids into (biped_done, quad_done, hex_done) using a snapshot taken BEFORE env.step()."""
         et = env_type_snapshot
         biped_done = done_env_ids_1d[et[done_env_ids_1d] == 0]
         quad_done = done_env_ids_1d[et[done_env_ids_1d] == 1]
-        return biped_done, quad_done
+        hex_done = done_env_ids_1d[et[done_env_ids_1d] == 2]
+        return biped_done, quad_done, hex_done
 
     def _log_type_stats(self, it: int):
         """Always print per-type episode stats. Also writes to TB if available."""
@@ -210,6 +215,12 @@ class OnPolicyRunner(OnPolicyRunnerBase):
         else:
             q_rew, q_len = float("nan"), float("nan")
 
+        if len(self._rewbuffer_hex) > 0:
+            h_rew = statistics.mean(self._rewbuffer_hex)
+            h_len = statistics.mean(self._lenbuffer_hex) if len(self._lenbuffer_hex) > 0 else 0.0
+        else:
+            h_rew, h_len = float("nan"), float("nan")
+
         # also show current env_type distribution (current, not snapshot)
         et_now = self._get_env_type()
         u, c = torch.unique(et_now, return_counts=True)
@@ -219,6 +230,7 @@ class OnPolicyRunner(OnPolicyRunnerBase):
             f"[TypeStats] it={it}  "
             f"biped: rew={b_rew:.3f}, len={b_len:.2f} | "
             f"quad: rew={q_rew:.3f}, len={q_len:.2f} | "
+            f"hex: rew={h_rew:.3f}, len={h_len:.2f} | "
             f"env_type_dist={dist}"
         )
 
@@ -227,6 +239,8 @@ class OnPolicyRunner(OnPolicyRunnerBase):
             self.writer.add_scalar("type/biped_ep_len_mean", b_len, it)
             self.writer.add_scalar("type/quad_ep_reward_mean", q_rew, it)
             self.writer.add_scalar("type/quad_ep_len_mean", q_len, it)
+            self.writer.add_scalar("type/hex_ep_reward_mean", h_rew, it)
+            self.writer.add_scalar("type/hex_ep_len_mean", h_len, it)
 
     # ---------------- main loop ----------------
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):  # noqa: C901
@@ -353,13 +367,16 @@ class OnPolicyRunner(OnPolicyRunnerBase):
                             lenbuffer.extend(cur_episode_length[done_env_ids].cpu().numpy().tolist())
 
                             # type buffers (use snapshot BEFORE step)
-                            biped_done, quad_done = self._split_done_ids_by_type(done_env_ids, env_type_prev)
+                            biped_done, quad_done, hex_done = self._split_done_ids_by_type(done_env_ids, env_type_prev)
                             if biped_done.numel() > 0:
                                 self._rewbuffer_biped.extend(cur_reward_sum[biped_done].cpu().numpy().tolist())
                                 self._lenbuffer_biped.extend(cur_episode_length[biped_done].cpu().numpy().tolist())
                             if quad_done.numel() > 0:
                                 self._rewbuffer_quad.extend(cur_reward_sum[quad_done].cpu().numpy().tolist())
                                 self._lenbuffer_quad.extend(cur_episode_length[quad_done].cpu().numpy().tolist())
+                            if hex_done.numel() > 0:
+                                self._rewbuffer_hex.extend(cur_reward_sum[hex_done].cpu().numpy().tolist())
+                                self._lenbuffer_hex.extend(cur_episode_length[hex_done].cpu().numpy().tolist())
 
                             # reset per-episode accumulators
                             cur_reward_sum[done_env_ids] = 0
@@ -584,5 +601,3 @@ class _OnnxPolicyExporter_GNN(torch.nn.Module):
             output_names=["actions"],
             dynamic_axes={"obs": {0: "batch"}, "actions": {0: "batch"}},
         )
-
-
