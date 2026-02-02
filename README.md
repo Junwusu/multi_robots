@@ -1,8 +1,4 @@
-这个分支实现了GNN actor critic 让双足四足正常行走并跟踪速度命令了
-
-将速度命令加入了obs 和 critic obs
-
-并略微调整了奖励的权重
+这个分支将二四六足全部加入进去了
 
 # Template for Isaac Lab Projects
 
