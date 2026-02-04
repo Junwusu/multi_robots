@@ -242,7 +242,7 @@ class ObservationsCfg:
             scale=1.0,
         )
 
-        # active robot joint measurements -> unified to 12
+        # active robot joint measurements -> unified to 18
         joint_pos = ObsTerm(
             func=mdp.active_joint_pos_rel_18,
             params={
@@ -267,7 +267,7 @@ class ObservationsCfg:
             scale=0.05,
         )
 
-        # last action (should already be 12-dim in your mixed action setup)
+        # last action (should already be 18-dim in your mixed action setup)
         last_action = ObsTerm(func=mdp.last_action)
 
         # gaits
@@ -275,64 +275,10 @@ class ObservationsCfg:
         gait_command = ObsTerm(func=mdp.get_gait_command, params={"command_name": "gait_command"})
 
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
-        # act_mask = ObsTerm(func=mdp.action_mask_18)
-
-        # robot_type = ObsTerm(func=mdp.robot_type_onehot)
-        # act_mask = ObsTerm(func=mdp.action_mask_12)
 
         def __post_init__(self) -> None:
             self.enable_corruption = True
             self.concatenate_terms = True
-
-    # @configclass
-    # class HistoryObsCfg(ObsGroup):
-        # """History Observation for policy group"""
-
-        # base_ang_vel = ObsTerm(
-        #     func=mdp.active_base_ang_vel,
-        #     params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad")},
-        #     noise=GaussianNoise(mean=0.0, std=0.05),
-        #     clip=(-100.0, 100.0),
-        #     scale=0.25,
-        # )
-        # proj_gravity = ObsTerm(
-        #     func=mdp.active_projected_gravity,
-        #     params={"biped_cfg": SceneEntityCfg("biped"), "quad_cfg": SceneEntityCfg("quad")},
-        #     noise=GaussianNoise(mean=0.0, std=0.025),
-        #     clip=(-100.0, 100.0),
-        #     scale=1.0,
-        # )
-
-        # joint_pos = ObsTerm(
-        #     func=mdp.active_joint_pos_rel_12,
-        #     params={
-        #         "biped_cfg": SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES, preserve_order=True),
-        #         "quad_cfg":  SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES,  preserve_order=True),
-        #     },
-        #     noise=GaussianNoise(mean=0.0, std=0.01),
-        #     clip=(-100.0, 100.0),
-        #     scale=1.0,
-        # )
-        # joint_vel = ObsTerm(
-        #     func=mdp.active_joint_vel_12,
-        #     params={
-        #         "biped_cfg": SceneEntityCfg("biped", joint_names=BRAVER_biped_JPOINT_NAMES, preserve_order=True),
-        #         "quad_cfg":  SceneEntityCfg("quad",  joint_names=BRAVER_QUAD_JOINT_NAMES,  preserve_order=True),
-        #     },
-        #     noise=GaussianNoise(mean=0.0, std=0.01),
-        #     clip=(-100.0, 100.0),
-        #     scale=0.05,
-        # )
-
-        # last_action = ObsTerm(func=mdp.last_action)
-        # gait_phase = ObsTerm(func=mdp.get_gait_phase)
-        # gait_command = ObsTerm(func=mdp.get_gait_command, params={"command_name": "gait_command"})
-
-        # def __post_init__(self):
-        #     self.enable_corruption = True
-        #     self.concatenate_terms = True
-        #     self.history_length = 10
-        #     self.flatten_history_dim = False
 
     @configclass
     class CriticCfg(ObsGroup):
@@ -376,29 +322,145 @@ class ObservationsCfg:
         gait_phase = ObsTerm(func=mdp.get_gait_phase)
         gait_command = ObsTerm(func=mdp.get_gait_command, params={"command_name": "gait_command"})
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
-        # act_mask = ObsTerm(func=mdp.action_mask_18)
-
-        # robot_type = ObsTerm(func=mdp.robot_type_onehot)
-        # act_mask = ObsTerm(func=mdp.action_mask_12)
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
             self.concatenate_terms = True
-    # @configclass
-    # class CommandsObsCfg(ObsGroup):
-    #     velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
-
     # observation groups
     policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
-    # commands: CommandsObsCfg = CommandsObsCfg()
-    # obsHistory: HistoryObsCfg = HistoryObsCfg()
 
 
 @configclass
 class EventCfg:
     """Configuration for events."""
-    reset_active_root = EventTerm(
+    add_base_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass_type_weighted,
+        mode = "startup",
+        params=dict(
+            biped_cfg=SceneEntityCfg("biped", body_names=BRAVER_biped_BASE_NAME),  # 或指定 trunk/腿
+            quad_cfg=SceneEntityCfg("quad",  body_names=BRAVER_QUAD_BASE_NAME),
+            hex_cfg=SceneEntityCfg("hexapod",   body_names=BRAVER_HEXAPOD_BASE_NAME),
+
+            mass_params_biped=(-0.5, 1.5),  # scale 范围
+            mass_params_quad=(-0.5, 1.5),
+            mass_params_hex=(-0.5, 1.5),
+
+            operation_biped="add",
+            operation_quad="add",
+            operation_hex="add",
+
+            distribution_biped="uniform",
+            distribution_quad="uniform",
+            distribution_hex="uniform",
+
+            recompute_inertia_biped=True,
+            recompute_inertia_quad=True,
+            recompute_inertia_hex=True,
+        ),
+        is_global_time=False,
+        min_step_count_between_reset=0,
+    )
+    radomize_rigid_body_mass_inertia = EventTerm(
+        func=mdp.randomize_rigid_body_mass_inertia_type_weighted,
+        mode="startup",
+        params=dict(
+            biped_cfg=SceneEntityCfg("biped"),   # 或 ["*"] / 指定部件
+            quad_cfg=SceneEntityCfg("quad"),
+            hex_cfg=SceneEntityCfg("hexapod"),
+
+            params_biped=(0.7, 1.3),
+            params_quad=(0.7, 1.3),
+            params_hex=(0.7, 1.3),
+
+            operation_biped="scale",
+            operation_quad="scale",
+            operation_hex="scale",
+
+            distribution_biped="uniform",
+            distribution_quad="uniform",
+            distribution_hex="uniform",
+        ),
+    )
+    robot_physics_material = EventTerm(
+        func=mdp.randomize_rigid_body_material_type_weighted,
+        mode="startup",
+        params=dict(
+            biped_cfg=SceneEntityCfg("biped", body_names=".*"),   # 可加 body_names/body_ids 只作用部分 link
+            quad_cfg=SceneEntityCfg("quad", body_names=".*"),
+            hex_cfg=SceneEntityCfg("hexapod", body_names=".*"),
+
+            static_friction_range_biped=(0.0, 1.6),
+            dynamic_friction_range_biped=(0.0, 1.6),
+            restitution_range_biped=(0.0, 1.0),
+            num_buckets_biped=64,
+            make_consistent_biped=True,
+
+            static_friction_range_quad=(0.0, 1.6),
+            dynamic_friction_range_quad=(0.0, 1.6),
+            restitution_range_quad=(0.0, 1.0),
+            num_buckets_quad=64,
+            make_consistent_quad=True,
+
+            static_friction_range_hex=(0.0, 1.6),
+            dynamic_friction_range_hex=(0.0, 1.6),
+            restitution_range_hex=(0.0, 1.0),
+            num_buckets_hex=64,
+            make_consistent_hex=True,
+        ),
+        is_global_time=False,
+        min_step_count_between_reset=0,
+    )
+    robot_joint_stiffness_and_damping = EventTerm(
+        func=mdp.randomize_actuator_gains_type_weighted,
+        mode="startup",
+        params=dict(
+            biped_cfg=SceneEntityCfg("biped", joint_names=[".*"]),
+            quad_cfg=SceneEntityCfg("quad",  joint_names=[".*"]),
+            hex_cfg=SceneEntityCfg("hexapod",   joint_names=[".*"]),
+
+            stiffness_params_biped=(0.8, 1.2),
+            damping_params_biped=(0.8, 1.2),
+
+            stiffness_params_quad=(0.9, 1.1),
+            damping_params_quad=(0.9, 1.1),
+
+            stiffness_params_hex=(0.9, 1.1),
+            damping_params_hex=(0.9, 1.1),
+
+            operation_biped="scale",
+            operation_quad="scale",
+            operation_hex="scale",
+
+            distribution_biped="uniform",
+            distribution_quad="uniform",
+            distribution_hex="uniform",
+        ),
+        is_global_time=False,
+        min_step_count_between_reset=0,
+    )
+    robot_center_of_mass = EventTerm(
+        func=mdp.randomize_rigid_body_coms_type_weighted,
+        mode="startup",
+        params=dict(
+            biped_cfg=SceneEntityCfg("biped", body_names=BRAVER_biped_BASE_NAME),  # 只改 trunk COM
+            quad_cfg=SceneEntityCfg("quad",  body_names=BRAVER_QUAD_BASE_NAME),
+            hex_cfg=SceneEntityCfg("hexapod",   body_names=BRAVER_HEXAPOD_BASE_NAME),
+
+            com_params_biped=((-0.02, 0.02), (-0.01, 0.01), (-0.03, 0.03)),
+            com_params_quad =((-0.02, 0.02), (-0.01, 0.01), (-0.03, 0.03)),
+            com_params_hex  =((-0.02, 0.02), (-0.01, 0.01), (-0.03, 0.03)),
+
+            operation_biped="add",
+            operation_quad="add",
+            operation_hex="add",
+            distribution_biped="uniform",
+            distribution_quad="uniform",
+            distribution_hex="uniform",
+        ),
+    )
+
+    reset_robot_base = EventTerm(
         func=mdp.reset_root_state_uniform_multi,
         mode="reset",
         params={
@@ -412,7 +474,7 @@ class EventCfg:
         min_step_count_between_reset=0,
     )
 
-    reset_active_joints = EventTerm(
+    reset_robot_joints = EventTerm(
         func=mdp.reset_joints_by_offset_set_multi,
         mode="reset",
         params={
@@ -436,6 +498,37 @@ class EventCfg:
             "hidden_pos1": (1.0, 0.0, -100.0),
             "hidden_pos2": (-1.0, 0.0, -100.0),
         },
+        is_global_time=False,
+        min_step_count_between_reset=0,
+    )
+
+    push_perturb = EventTerm(
+        func=mdp.apply_external_force_torque_stochastic_type_weighted,
+        mode="interval",
+        interval_range_s=(7.0, 7.0),
+        params=dict(
+            biped_cfg=SceneEntityCfg("biped", body_names=BRAVER_biped_BASE_NAME),
+            quad_cfg=SceneEntityCfg("quad",  body_names=BRAVER_QUAD_BASE_NAME),
+            hex_cfg=SceneEntityCfg("hexapod",   body_names=BRAVER_HEXAPOD_BASE_NAME),
+
+            probability_biped=0.002,
+            force_range_biped={"x": (-50, 50), "y": (-50, 50), "z": (0, 0)},
+            torque_range_biped={"x": (-5, 5), "y": (-5, 5), "z": (-0, 0)},
+
+            probability_quad=0.002,
+            force_range_quad={"x": (-80, 80), "y": (-80, 80), "z": (0, 0)},
+            torque_range_quad={"x": (-5, 5), "y": (-5, 5), "z": (-0, 0)},
+            probability_hex=0.002,
+            force_range_hex={"x": (-80, 80), "y": (-80, 80), "z": (0, 0)},
+            torque_range_hex={"x": (-5, 5), "y": (-5, 5), "z": (-0, 0)},
+
+            force_scale_biped=1.0,
+            torque_scale_biped=1.0,
+            force_scale_quad=1.0,
+            torque_scale_quad=1.0,
+            force_scale_hex=1.0,
+            torque_scale_hex=1.0,
+        ),
         is_global_time=False,
         min_step_count_between_reset=0,
     )
@@ -517,7 +610,7 @@ class RewardsCfg:
         func=mdp.joint_acc_l2_type_weighted,
         weight=1.0,  # 惩罚项通常给负
         params=dict(
-            w_biped=0,
+            w_biped=-2.5e-7,
             w_quad=-2.5e-7,
             w_hex=-2.5e-7,
             biped_cfg=BRAVER_biped_PRESERVE_JOINT_ORDER_ASSET_CFG,
@@ -543,9 +636,9 @@ class RewardsCfg:
         func=mdp.action_rate_l2_type_weighted,
         weight=1.0,
         params={
-            "w_biped": -0.01 ,    
-            "w_quad": -0.01,
-            "w_hex": -0.01,
+            "w_biped": -0.4 ,    
+            "w_quad": -0.4,
+            "w_hex": -0.4,
         },
     )
     joint_pos_limits = RewTerm(
@@ -624,7 +717,7 @@ class RewardsCfg:
             "target_height_biped": 0.37,
             "target_height_quad": 0.35,
             "target_height_hex": 0.35,
-            "w_biped": -10.0,
+            "w_biped": -50.0,
             "w_quad": 0.0,
             "w_hex": 0.0,
         },
@@ -852,7 +945,7 @@ class MultiLocoRoughEnvCfg_Play(MultiLocoRoughEnvCfg):
 
         super().__post_init__()
         #scene
-        self.scene.num_envs = 33
+        self.scene.num_envs = 18
         self.scene.env_spacing = 2.5
         # spawn the robot randomly in the grid (instead of their terrain levels)
         self.scene.terrain.max_init_terrain_level = None

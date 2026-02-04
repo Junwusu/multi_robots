@@ -138,3 +138,140 @@ class MultiLocoEnv(ManagerBasedRLEnv):
 
         # return observations, rewards, resets and extras
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
+
+
+
+
+
+
+
+
+class JointFaultInjector:
+    NORMAL = 0
+    STUCK = 1
+    TORQUE_LOSS = 2
+    SENSOR_NOISE = 3
+
+    def __init__(
+        self,
+        num_envs: int,
+        num_joints: int,
+        device: torch.device,
+        p_fault_env: float = 0.7,
+        max_fault_joints: int = 2,
+        p_type=(0.4, 0.4, 0.2),          # stuck / torque_loss / sensor_noise
+        torque_alpha_range=(0.05, 0.4),  # 越小越弱
+        sensor_q_std=0.05,
+        sensor_qd_std=0.2,
+    ):
+        self.num_envs = int(num_envs)
+        self.num_joints = int(num_joints)
+        self.device = device
+
+        self.p_fault_env = float(p_fault_env)
+        self.max_fault_joints = int(max_fault_joints)
+
+        p = torch.tensor(p_type, device=device, dtype=torch.float32)
+        self.p_type = p / p.sum()
+
+        self.torque_alpha_range = torque_alpha_range
+        self.sensor_q_std = float(sensor_q_std)
+        self.sensor_qd_std = float(sensor_qd_std)
+
+        # labels: [E,J]
+        self.fault_cls = torch.zeros((self.num_envs, self.num_joints), dtype=torch.long, device=device)
+
+        # stuck state
+        self.stuck_target = torch.zeros((self.num_envs, self.num_joints), dtype=torch.float32, device=device)
+        self.stuck_inited = torch.zeros((self.num_envs, self.num_joints), dtype=torch.bool, device=device)
+
+        # torque loss alpha
+        self.torque_alpha = torch.ones((self.num_envs, self.num_joints), dtype=torch.float32, device=device)
+
+    @torch.no_grad()
+    def resample(self, env_ids: torch.Tensor):
+        """Call on reset for env_ids."""
+        env_ids = env_ids.to(self.device)
+        self.fault_cls[env_ids] = self.NORMAL
+        self.torque_alpha[env_ids] = 1.0
+        self.stuck_inited[env_ids] = False  # reset stuck hold
+
+        E = env_ids.shape[0]
+        has_fault = (torch.rand(E, device=self.device) < self.p_fault_env)
+        if not has_fault.any():
+            return
+
+        ids_fault = env_ids[has_fault]
+        Ef = ids_fault.shape[0]
+        k = torch.randint(1, self.max_fault_joints + 1, (Ef,), device=self.device)
+
+        for i in range(Ef):
+            eid = ids_fault[i]
+            ki = int(k[i].item())
+
+            joints = torch.randperm(self.num_joints, device=self.device)[:ki]
+            t = torch.multinomial(self.p_type, num_samples=ki, replacement=True)  # 0/1/2
+            cls = torch.where(
+                t == 0,
+                self.STUCK,
+                torch.where(t == 1, self.TORQUE_LOSS, self.SENSOR_NOISE),
+            )
+            self.fault_cls[eid, joints] = cls
+
+            # torque alpha
+            mask_t = (cls == self.TORQUE_LOSS)
+            if mask_t.any():
+                a0, a1 = self.torque_alpha_range
+                self.torque_alpha[eid, joints[mask_t]] = a0 + (a1 - a0) * torch.rand(mask_t.sum(), device=self.device)
+
+    @torch.no_grad()
+    def apply_action_faults(self, actions: torch.Tensor, q: torch.Tensor, act_mask: torch.Tensor | None = None):
+        """
+        actions: [E,J] (position targets)
+        q:       [E,J] current joint pos (same ordering)
+        act_mask:[E,J] optional (0/1) used to avoid doing weird stuff on padded joints
+        """
+        if act_mask is None:
+            act_mask = torch.ones_like(actions)
+
+        # only operate on "existing joints"
+        valid = (act_mask > 0.5)
+
+        # stuck: hold target
+        stuck = (self.fault_cls == self.STUCK) & valid
+        if stuck.any():
+            need_init = stuck & (~self.stuck_inited)
+            self.stuck_target = torch.where(need_init, actions, self.stuck_target)
+            self.stuck_inited = self.stuck_inited | need_init
+            actions = torch.where(stuck, self.stuck_target, actions)
+
+        # torque loss: weaken command toward current q
+        tl = (self.fault_cls == self.TORQUE_LOSS) & valid
+        if tl.any():
+            alpha = self.torque_alpha
+            weakened = q + alpha * (actions - q)
+            actions = torch.where(tl, weakened, actions)
+
+        # (optional) still mask invalid joints to 0 to be safe
+        actions = actions * act_mask
+        return actions
+
+    @torch.no_grad()
+    def apply_sensor_noise(self, q_obs: torch.Tensor, qd_obs: torch.Tensor, act_mask: torch.Tensor | None = None):
+        """
+        Apply noise ONLY to SENSOR_NOISE joints and ONLY valid joints.
+        """
+        if act_mask is None:
+            act_mask = torch.ones_like(q_obs)
+        valid = (act_mask > 0.5)
+
+        sn = (self.fault_cls == self.SENSOR_NOISE) & valid
+        if not sn.any():
+            return q_obs, qd_obs
+
+        sn_f = sn.float()
+        q_obs = q_obs + torch.randn_like(q_obs) * self.sensor_q_std * sn_f
+        qd_obs = qd_obs + torch.randn_like(qd_obs) * self.sensor_qd_std * sn_f
+        return q_obs, qd_obs
+
+

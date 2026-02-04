@@ -434,7 +434,8 @@ class MorphGNNEncoder(nn.Module):
         returns z: [B, D]
         """
         h = self.mlp1(node_feat)  # [B,N,H]
-        h_nb = torch.einsum("ij,bjh->bih", self.A_norm, h)
+        # h_nb = torch.einsum("ij,bjh->bih", self.A_norm, h)
+        h_nb = torch.matmul(self.A_norm, h)
         h = h + h_nb
         h = self.mlp2(h)  # [B,N,D]
         z = h.mean(dim=1) 
